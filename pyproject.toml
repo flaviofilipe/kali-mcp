@@ -1,0 +1,11 @@
+[project]
+name = "kali-mcp"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "docker>=7.1.0",
+    "fastmcp>=3.3.1",
+    "mcp>=1.27.1",
+    "pydantic>=2.13.4",
+]

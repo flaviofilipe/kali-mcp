@@ -1,0 +1,22 @@
+services:
+  kali-mcp-box:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kali-mcp-box:latest
+    container_name: kali-mcp-box
+    tty: true
+    restart: unless-stopped
+    # Limita recursos para evitar que scans pesados consumam o host inteiro
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    networks:
+      - default
+      - pentest-lab
+
+networks:
+  pentest-lab:
+    external: true
