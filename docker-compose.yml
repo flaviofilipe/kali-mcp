@@ -7,7 +7,7 @@ services:
     container_name: kali-mcp-box
     tty: true
     restart: unless-stopped
-    # Limita recursos para evitar que scans pesados consumam o host inteiro
+    # Limit resources so heavy scans don't consume the entire host
     deploy:
       resources:
         limits:

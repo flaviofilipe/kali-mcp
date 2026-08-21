@@ -1,6 +1,6 @@
 # ── Stage 1: Go tools builder ─────────────────────────────────────────────────
-# Compila todas as ferramentas Go em uma camada separada para manter a imagem
-# final enxuta — só os binários são copiados para o stage final.
+# Compiles all Go tools in a separate layer to keep the final image lean —
+# only the binaries get copied into the final stage.
 FROM golang:1.24-bookworm AS go-builder
 
 ENV GOPATH=/root/go \
@@ -17,30 +17,30 @@ RUN go install -v github.com/sensepost/gowitness@latest
 RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 
-# ── Stage 2: imagem final Kali ────────────────────────────────────────────────
+# ── Stage 2: final Kali image ───────────────────────────────────────────────
 FROM kalilinux/kali-rolling
 
 LABEL org.opencontainers.image.title="kali-mcp-box" \
-      org.opencontainers.image.description="Container Kali com ferramentas de pentest para uso via MCP"
+      org.opencontainers.image.description="Kali container with pentest tools for use via MCP"
 
-# ── Ferramentas via apt ───────────────────────────────────────────────────────
+# ── Tools via apt ──────────────────────────────────────────────────────────
 RUN apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends \
-        # reconhecimento
+        # recon
         nmap \
-        # análise web
+        # web analysis
         nikto \
         testssl.sh \
         wpscan \
-        # exploração
+        # exploitation
         sqlmap \
         hydra \
         gobuster \
         dirb \
         ffuf \
-        # banco de dados
+        # database
         mariadb-client \
-        # wordlists e suporte
+        # wordlists and support
         wordlists \
         iputils-ping \
         curl \
@@ -48,17 +48,17 @@ RUN apt-get update -qq && \
         ca-certificates \
         chromium \
     && \
-    # descompactar rockyou.txt
+    # decompress rockyou.txt
     gunzip -f /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true && \
-    # limpar cache do apt
+    # clean apt cache
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    # o pacote instala como 'testssl'; o MCP chama 'testssl.sh'
+    # the package installs as 'testssl'; the MCP calls 'testssl.sh'
     ln -sf /usr/bin/testssl /usr/bin/testssl.sh && \
-    # wordlist de usuários unix para hydra (metasploit não está instalado)
+    # unix username wordlist for hydra (metasploit is not installed)
     printf 'root\nadmin\nuser\ntest\nguest\nubuntu\nkali\nwww-data\nftp\npostgres\nmysql\noperator\nservice\nbackup\ndaemon\n' \
         > /usr/share/wordlists/unix_users.txt
 
-# ── Copiar binários Go do builder ─────────────────────────────────────────────
+# ── Copy Go binaries from the builder ───────────────────────────────────────
 COPY --from=go-builder /root/go/bin/subfinder  /usr/local/bin/subfinder
 COPY --from=go-builder /root/go/bin/katana     /usr/local/bin/katana
 COPY --from=go-builder /root/go/bin/nuclei     /usr/local/bin/nuclei
@@ -66,20 +66,20 @@ COPY --from=go-builder /root/go/bin/dalfox     /usr/local/bin/dalfox
 COPY --from=go-builder /root/go/bin/gowitness  /usr/local/bin/gowitness
 COPY --from=go-builder /root/go/bin/httpx      /usr/local/bin/httpx
 
-# ── Wordlists adicionais ──────────────────────────────────────────────────────
+# ── Additional wordlists ─────────────────────────────────────────────────────
 COPY config/sensitive-paths.txt /usr/share/wordlists/sensitive-paths.txt
 
-# ── Templates do Nuclei ───────────────────────────────────────────────────────
-# Baixa os templates durante o build para que o container já esteja pronto
-# sem precisar de internet no primeiro uso.
+# ── Nuclei templates ─────────────────────────────────────────────────────────
+# Downloads templates during the build so the container is ready to go
+# without needing internet on first use.
 RUN nuclei -update-templates -silent || true
 
-# ── Diretórios de output ──────────────────────────────────────────────────────
+# ── Output directories ───────────────────────────────────────────────────────
 RUN mkdir -p /tmp/sqlmap-results /tmp/gowitness /tmp/nuclei-results
 
 # ── Healthcheck ───────────────────────────────────────────────────────────────
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD nmap --version && nikto -Version && nuclei -version || exit 1
 
-# Container fica em modo idle aguardando exec do MCP server
+# Container stays idle, waiting for the MCP server to exec into it
 CMD ["tail", "-f", "/dev/null"]

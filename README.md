@@ -1,188 +1,195 @@
 # kali-security-bridge
 
-Servidor [MCP](https://modelcontextprotocol.io) que expõe um ciclo completo de
-testes de segurança ofensivos — reconhecimento, enumeração, análise web e
-exploração — executados dentro de um container Kali Linux isolado, com
-allowlist obrigatória, rate limiting e audit log.
+An [MCP](https://modelcontextprotocol.io) server that gives Claude (or any
+MCP-compatible AI agent) a complete offensive security testing toolkit —
+reconnaissance, enumeration, web analysis, and exploitation — running
+inside an isolated Kali Linux container, with a mandatory target allowlist,
+rate limiting, and a full audit log.
 
-> ⚠️ Leia [`SECURITY.md`](./SECURITY.md) antes de usar. Este projeto executa
-> ferramentas ofensivas reais (`hydra`, `sqlmap`, upload de arquivo malicioso
-> como PoC, etc.) — só contra alvos que você tem autorização explícita para
-> testar.
+In short: **AI-driven penetration testing automation**, safely sandboxed in
+Docker, exposed as MCP tools so Claude Code or Claude Desktop can run a full
+web app / WordPress / network pentest — Nmap port scanning, Nikto and Nuclei
+vulnerability scanning, Gobuster/ffuf directory brute forcing, SQLMap SQL
+injection testing, Hydra credential brute forcing, WPScan WordPress
+auditing, and automated Markdown/JSON reporting — all from a chat
+conversation.
 
-## Índice
+> ⚠️ Read [`SECURITY.md`](./SECURITY.md) before using this. This project runs
+> real offensive tools (`hydra`, `sqlmap`, malicious file upload as a PoC,
+> etc.) — only ever against targets you have explicit authorization to test.
 
-- [Arquitetura e infraestrutura](#arquitetura-e-infraestrutura)
-- [Requisitos mínimos](#requisitos-mínimos)
-- [Ferramentas disponíveis no container](#ferramentas-disponíveis-no-container)
-- [Iniciando a imagem Docker](#iniciando-a-imagem-docker)
-- [Conectando no Claude Code (local, stdio)](#conectando-no-claude-code-local-stdio)
-- [Conectando no Claude Desktop (remoto, via Cloudflare Tunnel)](#conectando-no-claude-desktop-remoto-via-cloudflare-tunnel)
-- [Tools MCP — referência e exemplos de uso](#tools-mcp--referência-e-exemplos-de-uso)
-- [Dados locais](#dados-locais-fora-do-repositório)
+## Table of contents
 
-## Arquitetura e infraestrutura
+- [Architecture and infrastructure](#architecture-and-infrastructure)
+- [Minimum requirements](#minimum-requirements)
+- [Tools available in the container](#tools-available-in-the-container)
+- [Starting the Docker image](#starting-the-docker-image)
+- [Connecting to Claude Code (local, stdio)](#connecting-to-claude-code-local-stdio)
+- [Connecting to Claude Desktop (remote, via Cloudflare Tunnel)](#connecting-to-claude-desktop-remote-via-cloudflare-tunnel)
+- [MCP tools — reference and usage examples](#mcp-tools--reference-and-usage-examples)
+- [Local data](#local-data-outside-the-repository)
+
+## Architecture and infrastructure
 
 ```
 Claude (Code / Desktop)
-        │  MCP — stdio local, OU HTTP remoto com OAuth
+        │  MCP — local stdio, OR remote HTTP with OAuth
         ▼
-   server.py (FastMCP)  ──docker exec (sem shell)──▶  container kali-mcp-box
-        │                                              (Kali Linux + ferramentas)
+   server.py (FastMCP)  ──docker exec (no shell)──▶  kali-mcp-box container
+        │                                              (Kali Linux + tools)
         ▼
-  ~/.kali-mcp/findings.db (SQLite) + audit.log + relatórios
+  ~/.kali-mcp/findings.db (SQLite) + audit.log + reports
 ```
 
-O projeto usa duas topologias, dependendo de quem conecta:
+The project uses two topologies, depending on who's connecting:
 
-| Peça | Uso | Papel |
+| Component | Used | Role |
 |---|---|---|
-| **Docker** | sempre | Isola as ferramentas ofensivas num container próprio (`kali-mcp-box`), com `NET_ADMIN`/`NET_RAW` só ali dentro — nunca no host |
-| **FastMCP** (Python) | sempre | Implementa o protocolo MCP e expõe as tools; roda em `stdio` (local) ou `http` (remoto) |
-| **systemd (`--user`)** | modo remoto | Mantém o servidor HTTP no ar como serviço persistente, com restart automático e sobrevivência a reboot (`loginctl enable-linger`) |
-| **AWS Cognito** | modo remoto | Authorization Server OAuth 2.1 — exige login antes de qualquer tool call quando exposto via HTTP. Nunca é usado no modo stdio local |
-| **Cloudflare Tunnel** (`cloudflared`) | modo remoto | Expõe o servidor num domínio público real com TLS válido. **Necessário mesmo pra uso pessoal remoto**: o registro OAuth do Claude Desktop é feito pelo *back-end da Anthropic*, que não alcança domínios que só existem em DNS privado/VPN (ex. `.ts.net` do Tailscale) |
+| **Docker** | always | Isolates the offensive tools inside their own container (`kali-mcp-box`), with `NET_ADMIN`/`NET_RAW` scoped to it — never on the host |
+| **FastMCP** (Python) | always | Implements the MCP protocol and exposes the tools; runs over `stdio` (local) or `http` (remote) |
+| **systemd (`--user`)** | remote mode | Keeps the HTTP server alive as a persistent service, with automatic restart and reboot survival (`loginctl enable-linger`) |
+| **AWS Cognito** | remote mode | OAuth 2.1 Authorization Server — requires login before any tool call when exposed over HTTP. Never used in local stdio mode |
+| **Cloudflare Tunnel** (`cloudflared`) | remote mode | Exposes the server on a real public domain with valid TLS. **Needed even for personal remote use**: Claude Desktop's OAuth registration is done by *Anthropic's backend*, which can't reach domains that only exist on private DNS/VPN (e.g. Tailscale's `.ts.net`) |
 
-Não há GPU/CUDA envolvido em nada disso — ver seção de requisitos.
+No GPU/CUDA is involved anywhere in this — see the requirements section.
 
-## Requisitos mínimos
+## Minimum requirements
 
-### Para rodar localmente (stdio, uso com Claude Code)
+### To run locally (stdio, used with Claude Code)
 
 - **Docker** + **Docker Compose v2**
-- **[uv](https://docs.astral.sh/uv/)** (gerencia o Python 3.13 automaticamente)
-- **CPU:** 2 núcleos (limite aplicado ao container via `docker-compose.yml`)
-- **RAM:** 4 GB livres (2 GB reservados ao container + host + processo Python)
-- **Disco:** ~6 GB livres (imagem final ~3 GB; durante o build multi-stage, picos maiores por causa do stage de compilação Go)
-- **SO:** Linux ou macOS com Docker Desktop. Windows funciona via WSL2
-- Usuário com permissão no socket Docker (grupo `docker` ou root)
+- **[uv](https://docs.astral.sh/uv/)** (manages Python 3.13 automatically)
+- **CPU:** 2 cores (limit applied to the container via `docker-compose.yml`)
+- **RAM:** 4 GB free (2 GB reserved for the container + host + Python process)
+- **Disk:** ~6 GB free (final image ~3 GB; the multi-stage build can spike higher during the Go compile stage)
+- **OS:** Linux or macOS with Docker Desktop. Windows works via WSL2
+- A user with permission on the Docker socket (`docker` group or root)
 
-### Adicional, só para expor remotamente (HTTP + OAuth)
+### Additional, only for remote exposure (HTTP + OAuth)
 
-- Uma conta **AWS** (Cognito tem free tier — 50k MAUs/mês grátis, suficiente pra uso pessoal/pequenas equipes)
-- **AWS CLI** configurado, para criar o User Pool/App Client
-- **`cloudflared`** instalado ([Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)) — não precisa de domínio próprio pra testar (Quick Tunnel gera uma URL `*.trycloudflare.com` na hora); domínio próprio é recomendado pra uso permanente
-- **systemd** (`systemctl --user`) se for rodar como serviço persistente em Linux — em outro SO, adapte para o gerenciador de processos equivalente (launchd, etc.)
+- An **AWS** account (Cognito has a free tier — 50k MAUs/month free, plenty for personal use/small teams)
+- **AWS CLI** configured, to create the User Pool/App Client
+- **`cloudflared`** installed ([Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)) — no domain of your own needed to test (a Quick Tunnel generates a `*.trycloudflare.com` URL on the spot); a custom domain is recommended for permanent use
+- **systemd** (`systemctl --user`) if running as a persistent service on Linux — on another OS, adapt to the equivalent process manager (launchd, etc.)
 
 ### GPU / CUDA
 
-**Não é usado neste projeto.** Nenhuma ferramenta do container (nmap, sqlmap,
-hydra, nuclei, etc.) depende de GPU — todo o trabalho é CPU-bound. O
-`docker-compose.yml` não reserva nenhum device de GPU, e o Dockerfile não
-instala CUDA/drivers NVIDIA. Se a máquina host tiver uma GPU, ela fica
-ociosa para os fins deste projeto.
+**Not used by this project.** No tool in the container (nmap, sqlmap,
+hydra, nuclei, etc.) depends on a GPU — everything is CPU-bound. The
+`docker-compose.yml` reserves no GPU device, and the Dockerfile installs no
+CUDA/NVIDIA drivers. If the host machine has a GPU, it sits idle as far as
+this project is concerned.
 
-## Ferramentas disponíveis no container
+## Tools available in the container
 
-Instaladas via `apt` (imagem final `kalilinux/kali-rolling`):
+Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 
-| Ferramenta | Categoria |
+| Tool | Category |
 |---|---|
-| `nmap` | Varredura de portas/serviços |
-| `nikto` | Vulnerabilidades web |
-| `testssl.sh` | Análise SSL/TLS |
-| `wpscan` | Auditoria WordPress |
-| `sqlmap` | SQL Injection |
-| `hydra` | Brute force de credenciais |
-| `gobuster`, `dirb` | Enumeração de diretórios |
-| `ffuf` | Fuzzing rápido |
-| `mariadb-client` | Enumeração direta de MySQL/MariaDB |
-| `curl`, `wget`, `chromium` | Requisições HTTP / renderização |
+| `nmap` | Port/service scanning |
+| `nikto` | Web vulnerability scanning |
+| `testssl.sh` | SSL/TLS analysis |
+| `wpscan` | WordPress security auditing |
+| `sqlmap` | SQL injection testing |
+| `hydra` | Credential brute forcing |
+| `gobuster`, `dirb` | Directory enumeration |
+| `ffuf` | Fast fuzzing |
+| `mariadb-client` | Direct MySQL/MariaDB enumeration |
+| `curl`, `wget`, `chromium` | HTTP requests / rendering |
 
-Compiladas de fonte em um stage builder Go separado (`golang:1.24-bookworm`),
-e só os binários finais copiados pra imagem (mantém a imagem final enxuta):
+Compiled from source in a separate Go builder stage (`golang:1.24-bookworm`),
+with only the final binaries copied into the image (keeps the final image lean):
 
-| Ferramenta | Categoria |
+| Tool | Category |
 |---|---|
-| `subfinder` | Enumeração de subdomínios |
-| `katana` | Crawling de aplicação web |
-| `nuclei` | Detecção de CVEs via templates (atualizados no build) |
-| `dalfox` | Detecção de XSS |
-| `gowitness` | Screenshot de evidências |
-| `httpx` | Probing HTTP em lote |
+| `subfinder` | Subdomain enumeration |
+| `katana` | Web application crawling |
+| `nuclei` | Template-based CVE detection (updated at build time) |
+| `dalfox` | XSS detection |
+| `gowitness` | Screenshot evidence capture |
+| `httpx` | Batch HTTP probing |
 
-Wordlists incluídas: `rockyou.txt` (descompactada no build), wordlists padrão
-do Kali (`dirb`, `dirbuster`), e uma lista própria de paths sensíveis
-(`config/sensitive-paths.txt`, 60+ entradas — `.env`, backups de banco,
-`wp-config.php.bak` etc.) usada por `verificar_arquivos_expostos`.
+Wordlists included: `rockyou.txt` (decompressed at build time), Kali's
+standard wordlists (`dirb`, `dirbuster`), and a custom sensitive-paths list
+(`config/sensitive-paths.txt`, 60+ entries — `.env`, database backups,
+`wp-config.php.bak`, etc.) used by `check_exposed_files`.
 
-## Iniciando a imagem Docker
+## Starting the Docker image
 
 ```bash
-git clone <este-repositório>
+git clone <this-repository>
 cd kali-mcp
 
-# builda a imagem (primeira vez ou após atualizar o Dockerfile)
+# build the image (first time, or after updating the Dockerfile)
 docker compose build
 
-# sobe o container em background, fica vivo aguardando exec do MCP server
+# start the container in the background — it stays alive waiting for MCP exec
 docker compose up -d
 
-# confirma que subiu
+# confirm it's up
 docker ps --filter name=kali-mcp-box
 ```
 
-Para forçar uma imagem 100% nova (pacotes/templates atualizados, sem cache):
+To force a fully fresh image (updated packages/templates, no cache):
 
 ```bash
 docker compose build --no-cache
-docker compose up -d   # recria o container a partir da imagem nova
+docker compose up -d   # recreates the container from the new image
 ```
 
-Recomendado rodar o rebuild periodicamente — a imagem não se atualiza
-sozinha, e os templates do Nuclei/pacotes `apt` ficam parados na data do
-build.
+Rebuilding periodically is recommended — the image doesn't update itself,
+and the Nuclei templates/`apt` packages stay frozen at build time.
 
-## Conectando no Claude Code (local, stdio)
+## Connecting to Claude Code (local, stdio)
 
-1. Instale as dependências Python:
+1. Install the Python dependencies:
    ```bash
    uv sync
    ```
-2. Confirme que o container está rodando (`docker ps --filter name=kali-mcp-box`).
-3. Registre o servidor em `~/.mcp.json`:
+2. Confirm the container is running (`docker ps --filter name=kali-mcp-box`).
+3. Register the server in `~/.mcp.json`:
    ```json
    {
      "mcpServers": {
        "kali-security-bridge": {
          "command": "uv",
-         "args": ["run", "--project", "/caminho/absoluto/para/kali-mcp", "/caminho/absoluto/para/kali-mcp/server.py"]
+         "args": ["run", "--project", "/absolute/path/to/kali-mcp", "/absolute/path/to/kali-mcp/server.py"]
        }
      }
    }
    ```
-4. Reinicie o Claude Code. As 27 tools devem aparecer disponíveis.
+4. Restart Claude Code. All 25 tools should show up as available.
 
-Nesse modo, **não há autenticação** — o próprio SO controla quem consegue
-spawnar o processo, e o `KALI_MCP_TRANSPORT` fica em `stdio` (padrão, não
-precisa setar nada).
+In this mode, **there is no authentication** — the OS itself controls who
+can spawn the process, and `KALI_MCP_TRANSPORT` stays at `stdio` (the
+default, nothing to set).
 
-## Conectando no Claude Desktop (remoto, via Cloudflare Tunnel)
+## Connecting to Claude Desktop (remote, via Cloudflare Tunnel)
 
-Use este caminho quando o Claude Desktop roda numa máquina diferente de onde
-o servidor/container estão. O fluxo nativo de "Connectors" do Desktop exige
-que o servidor: (a) esteja em HTTPS com domínio publicamente resolvível, e
-(b) implemente OAuth com registro dinâmico de cliente (RFC 7591) — os dois
-já vêm prontos aqui via FastMCP + AWS Cognito.
+Use this path when Claude Desktop runs on a different machine than the
+server/container. Desktop's native "Connectors" flow requires the server
+to: (a) be on HTTPS with a publicly resolvable domain, and (b) implement
+OAuth with dynamic client registration (RFC 7591) — both come ready-made
+here via FastMCP + AWS Cognito.
 
-### 1. Criar a infraestrutura de auth (uma vez)
+### 1. Create the auth infrastructure (one time)
 
 ```bash
-# User Pool com self-signup desabilitado — só você (ou quem for adicionado
-# manualmente) consegue logar
+# User Pool with self-signup disabled — only you (or anyone added
+# manually) can log in
 aws cognito-idp create-user-pool \
   --pool-name kali-mcp-bridge \
   --auto-verified-attributes email \
   --admin-create-user-config AllowAdminCreateUserOnly=true \
   --region us-east-1
 
-# domínio da Hosted UI (login)
+# Hosted UI (login) domain
 aws cognito-idp create-user-pool-domain \
-  --domain <prefixo-unico-seu> \
+  --domain <your-unique-prefix> \
   --user-pool-id <POOL_ID> \
   --region us-east-1
 
-# App Client com secret
+# App Client with a secret
 aws cognito-idp create-user-pool-client \
   --user-pool-id <POOL_ID> \
   --client-name kali-mcp-bridge-client \
@@ -190,45 +197,45 @@ aws cognito-idp create-user-pool-client \
   --allowed-o-auth-flows code \
   --allowed-o-auth-scopes openid email profile \
   --allowed-o-auth-flows-user-pool-client \
-  --callback-urls "https://<seu-dominio-cloudflare>/auth/callback" \
+  --callback-urls "https://<your-cloudflare-domain>/auth/callback" \
   --supported-identity-providers COGNITO \
   --region us-east-1
 
-# seu usuário (self-signup está desligado, então só admin cria)
+# your user (self-signup is off, so only an admin can create one)
 aws cognito-idp admin-create-user \
   --user-pool-id <POOL_ID> \
-  --username seu-email@exemplo.com \
-  --user-attributes Name=email,Value=seu-email@exemplo.com Name=email_verified,Value=true \
+  --username your-email@example.com \
+  --user-attributes Name=email,Value=your-email@example.com Name=email_verified,Value=true \
   --message-action SUPPRESS --region us-east-1
 
 aws cognito-idp admin-set-user-password \
-  --user-pool-id <POOL_ID> --username seu-email@exemplo.com \
-  --password '<senha-forte>' --permanent --region us-east-1
+  --user-pool-id <POOL_ID> --username your-email@example.com \
+  --password '<strong-password>' --permanent --region us-east-1
 ```
 
-### 2. Subir o túnel Cloudflare
+### 2. Start the Cloudflare tunnel
 
 ```bash
-# teste rápido, sem conta/domínio (URL temporária *.trycloudflare.com)
+# quick test, no account/domain needed (temporary *.trycloudflare.com URL)
 cloudflared tunnel --url http://127.0.0.1:8765
 
-# para produção: crie um tunnel nomeado com domínio próprio
+# for production: create a named tunnel with your own domain
 # https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
 ```
 
-Anote a URL gerada (ex. `https://algo-aleatorio.trycloudflare.com`) — ela vai
-mudar toda vez que um Quick Tunnel for reiniciado. Pra uso permanente, use um
-tunnel nomeado com domínio fixo.
+Note the generated URL (e.g. `https://some-random-words.trycloudflare.com`) —
+it changes every time a Quick Tunnel restarts. For permanent use, use a
+named tunnel with a fixed domain.
 
-### 3. Configurar e subir o servidor em modo HTTP
+### 3. Configure and start the server in HTTP mode
 
-Variáveis de ambiente (via `.env` local, ou diretamente no ambiente):
+Environment variables (via a local `.env`, or set directly):
 
 ```bash
 KALI_MCP_TRANSPORT=http
-KALI_MCP_HOST=127.0.0.1        # bind só em loopback — o Cloudflare Tunnel expõe pra fora
+KALI_MCP_HOST=127.0.0.1        # bind loopback only — the Cloudflare Tunnel exposes it externally
 KALI_MCP_PORT=8765
-KALI_MCP_PUBLIC_URL=https://<url-do-tunnel>
+KALI_MCP_PUBLIC_URL=https://<tunnel-url>
 COGNITO_USER_POOL_ID=<POOL_ID>
 COGNITO_REGION=us-east-1
 COGNITO_CLIENT_ID=<CLIENT_ID>
@@ -239,129 +246,129 @@ COGNITO_CLIENT_SECRET=<CLIENT_SECRET>
 uv run --project . server.py
 ```
 
-Pra manter no ar de forma persistente em Linux, use um serviço `systemd
---user` com `EnvironmentFile` apontando pro `.env` e `Restart=on-failure` —
-veja o exemplo comentado no repositório (não versionado, específico de cada
-deploy).
+To keep it running persistently on Linux, use a `systemd --user` service
+with `EnvironmentFile` pointing at the `.env` and `Restart=on-failure` —
+see the commented example in the repository (not checked in, specific to
+each deployment).
 
-### 4. Adicionar o conector no Claude Desktop
+### 4. Add the connector in Claude Desktop
 
-Nas configurações do Desktop, seção de Connectors → **Add custom connector**:
+In Desktop's settings, under Connectors → **Add custom connector**:
 
-- **Nome:** `kali-security-bridge`
-- **URL:** `https://<url-do-tunnel>/mcp`
-- Deixe as configurações avançadas em branco — o registro OAuth é automático
-  (dynamic client registration), não precisa de Client ID manual
+- **Name:** `kali-security-bridge`
+- **URL:** `https://<tunnel-url>/mcp`
+- Leave the advanced settings blank — OAuth registration is automatic
+  (dynamic client registration), no manual Client ID needed
 
-Você será redirecionado pra tela de login hospedada do Cognito. Depois de
-autenticar, as 27 tools ficam disponíveis normalmente.
+You'll be redirected to Cognito's hosted login screen. Once authenticated,
+all 25 tools become available as usual.
 
-## Tools MCP — referência e exemplos de uso
+## MCP tools — reference and usage examples
 
-Fluxo obrigatório: **adicione o alvo na allowlist antes de qualquer scan.**
-Nenhuma tool executa contra um alvo não autorizado.
+Required workflow: **add the target to the allowlist before any scan.**
+No tool will run against an unauthorized target.
 
-### Governança
+### Governance
 
-**`gerenciar_allowlist`** — adiciona/remove/lista alvos autorizados
+**`manage_allowlist`** — adds/removes/lists authorized targets
 ```python
-gerenciar_allowlist(action="add", entry="192.168.1.10", note="VM de lab — autorizado em 2026-05-18")
-gerenciar_allowlist(action="list")
-gerenciar_allowlist(action="remove", entry="192.168.1.10")
+manage_allowlist(action="add", entry="192.168.1.10", note="lab VM — authorized on 2026-05-18")
+manage_allowlist(action="list")
+manage_allowlist(action="remove", entry="192.168.1.10")
 ```
 
-**`verificar_alvo_online`** — ping antes de qualquer scan
+**`check_target_online`** — ping before any scan
 ```python
-verificar_alvo_online(target="192.168.1.10")
+check_target_online(target="192.168.1.10")
 ```
 
-**`retomar_sessao`** — retoma um pentest interrompido, listando scans salvos
+**`resume_session`** — resumes an interrupted pentest, listing saved scans
 ```python
-retomar_sessao(target="exemplo.com.br")
+resume_session(target="example.com")
 ```
 
-**`listar_findings`** — consulta o histórico de findings no SQLite
+**`list_findings`** — queries the finding history in SQLite
 ```python
-listar_findings(target="192.168.1.10", limit=20)
+list_findings(target="192.168.1.10", limit=20)
 ```
 
-**`gerar_relatorio`** — consolida todos os findings de um alvo num relatório
+**`generate_report`** — consolidates all findings for a target into one report
 ```python
-gerar_relatorio(target="192.168.1.10", formato="markdown")
+generate_report(target="192.168.1.10", output_format="markdown")
 ```
 
-### Reconhecimento
+### Reconnaissance
 
-**`scan_portas_nmap`** — varredura de portas, sempre a primeira fase
+**`scan_ports_nmap`** — port scanning, always the first phase
 ```python
-scan_portas_nmap(target="192.168.1.10", flags="-sV -F")
-scan_portas_nmap(target="192.168.1.10", flags="-p 1-65535 -sV", stealth=True)
+scan_ports_nmap(target="192.168.1.10", flags="-sV -F")
+scan_ports_nmap(target="192.168.1.10", flags="-p 1-65535 -sV", stealth=True)
 ```
 
-**`enum_subdominios_subfinder`** — reconhecimento passivo de subdomínios
+**`enum_subdomains_subfinder`** — passive subdomain reconnaissance
 ```python
-enum_subdominios_subfinder(domain="exemplo.com.br")
+enum_subdomains_subfinder(domain="example.com")
 ```
 
-**`scan_diretorios_gobuster`** — diretórios/arquivos ocultos via força bruta
+**`scan_directories_gobuster`** — brute-force hidden directories/files
 ```python
-scan_diretorios_gobuster(target_url="http://192.168.1.10", extensions="php,html,js,txt,bak,zip,env")
-scan_diretorios_gobuster(target_url="https://app.local", evasion=True)  # alvo com WAF
+scan_directories_gobuster(target_url="http://192.168.1.10", extensions="php,html,js,txt,bak,zip,env")
+scan_directories_gobuster(target_url="https://app.local", evasion=True)  # target with a WAF
 ```
 
-**`crawl_aplicacao_katana`** — crawling pra descobrir endpoints/parâmetros
+**`crawl_application_katana`** — crawling to discover endpoints/parameters
 ```python
-crawl_aplicacao_katana(target_url="http://192.168.1.10", depth=3)
+crawl_application_katana(target_url="http://192.168.1.10", depth=3)
 ```
 
-**`scan_fuzzing_ffuf`** — fuzzing rápido de diretórios, parâmetros ou APIs
+**`scan_fuzzing_ffuf`** — fast fuzzing of directories, parameters, or APIs
 ```python
-scan_fuzzing_ffuf(target_url="http://192.168.1.10/FUZZ")                      # diretórios
-scan_fuzzing_ffuf(target_url="http://192.168.1.10/page", param_name="id")     # parâmetro GET
+scan_fuzzing_ffuf(target_url="http://192.168.1.10/FUZZ")                      # directories
+scan_fuzzing_ffuf(target_url="http://192.168.1.10/page", param_name="id")     # GET parameter
 scan_fuzzing_ffuf(target_url="http://192.168.1.10/login", param_name="user", method="POST")
 ```
 
-### Análise de vulnerabilidades
+### Vulnerability analysis
 
-**`scan_vulnerabilidades_nikto`** — varredura geral de vulnerabilidades web
+**`scan_vulnerabilities_nikto`** — general web vulnerability scan
 ```python
-scan_vulnerabilidades_nikto(target_url="http://192.168.1.10")
+scan_vulnerabilities_nikto(target_url="http://192.168.1.10")
 ```
 
-**`scan_ssl_testssl`** — protocolos/cifras fracas, certificados, HEARTBLEED etc.
+**`scan_ssl_testssl`** — weak protocols/ciphers, certificates, HEARTBLEED, etc.
 ```python
-scan_ssl_testssl(target="app.exemplo.com", port=443)
+scan_ssl_testssl(target="app.example.com", port=443)
 ```
 
-**`scan_nuclei`** — CVEs conhecidos via templates
+**`scan_nuclei`** — known CVEs via templates
 ```python
 scan_nuclei(target_url="http://192.168.1.10", severity="high,critical")
 scan_nuclei(target_url="http://192.168.1.10", tags="wordpress")
 ```
 
-**`scan_xss_dalfox`** — XSS refletido/DOM
+**`scan_xss_dalfox`** — reflected/DOM XSS
 ```python
 scan_xss_dalfox(target_url="http://app.local/search?q=test")
 ```
 
-**`scan_wordpress_wpscan`** — auditoria completa de WordPress
+**`scan_wordpress_wpscan`** — full WordPress audit
 ```python
 scan_wordpress_wpscan(target_url="http://192.168.1.10", enumerate="vp,vt,u")
 ```
 
-**`scan_xmlrpc_wordpress`** — vetores de ataque no xmlrpc.php
+**`scan_xmlrpc_wordpress`** — attack vectors on xmlrpc.php
 ```python
 scan_xmlrpc_wordpress(target_url="http://192.168.1.10")
 ```
 
-### Exploração
+### Exploitation
 
-**`scan_sql_injection_sqlmap`** — SQL Injection, sempre escalando o risco aos poucos
+**`scan_sql_injection_sqlmap`** — SQL injection, always escalating risk gradually
 ```python
-scan_sql_injection_sqlmap(target_url="http://app.local/user?id=1", risk=1, level=1)  # comece aqui
+scan_sql_injection_sqlmap(target_url="http://app.local/user?id=1", risk=1, level=1)  # start here
 ```
 
-**`brute_force_hydra`** — credenciais fracas em serviços de autenticação
+**`brute_force_hydra`** — weak credentials on authentication services
 ```python
 brute_force_hydra(target="192.168.1.10", service="ssh", port=22)
 brute_force_hydra(
@@ -372,56 +379,56 @@ brute_force_hydra(
 )
 ```
 
-**`testar_upload_arquivo`** — PoC de upload irrestrito (CWE-434)
+**`test_file_upload`** — PoC for unrestricted upload (CWE-434)
 ```python
-testar_upload_arquivo(upload_url="http://192.168.1.10/upload.php", field_name="file")
+test_file_upload(upload_url="http://192.168.1.10/upload.php", field_name="file")
 ```
 
-**`enumerar_banco_mysql`** — enumera bancos/tabelas/hashes com credenciais conhecidas
+**`enumerate_mysql_database`** — enumerate databases/tables/hashes with known credentials
 ```python
-enumerar_banco_mysql(host="192.168.1.10", user="root", password="root", database="wordpress")
+enumerate_mysql_database(host="192.168.1.10", user="root", password="root", database="wordpress")
 ```
 
-### Utilitários web
+### Web utilities
 
-**`fazer_requisicao_http`** — requisição HTTP customizada
+**`make_http_request`** — custom HTTP request
 ```python
-fazer_requisicao_http(url="http://192.168.1.10/.env")
-fazer_requisicao_http(url="http://192.168.1.10/api/login", method="POST", body="user=admin&pass=test")
+make_http_request(url="http://192.168.1.10/.env")
+make_http_request(url="http://192.168.1.10/api/login", method="POST", body="user=admin&pass=test")
 ```
 
-**`verificar_headers_seguranca`** — CSP, HSTS, cookies, CORS, com severidade
+**`check_security_headers`** — CSP, HSTS, cookies, CORS, with severity
 ```python
-verificar_headers_seguranca(target_url="https://app.local")
+check_security_headers(target_url="https://app.local")
 ```
 
-**`verificar_arquivos_expostos`** — `.env`, backups, `phpinfo.php` etc.
+**`check_exposed_files`** — `.env`, backups, `phpinfo.php`, etc.
 ```python
-verificar_arquivos_expostos(target_url="http://192.168.1.10")
+check_exposed_files(target_url="http://192.168.1.10")
 ```
 
-**`screenshot_gowitness`** — evidência visual da aplicação
+**`screenshot_gowitness`** — visual evidence of the application
 ```python
 screenshot_gowitness(target_url="http://192.168.1.10/admin")
 ```
 
-### Orquestração
+### Orchestration
 
-**`pentest_completo`** — pipeline autônomo de ponta a ponta (16 fases)
+**`run_full_pentest`** — autonomous end-to-end pipeline (16 phases)
 ```python
-pentest_completo(target="192.168.1.10")
-pentest_completo(target="exemplo.com.br", target_url="https://exemplo.com.br", include_brute_force=True, evasion=True)
+run_full_pentest(target="192.168.1.10")
+run_full_pentest(target="example.com", target_url="https://example.com", include_brute_force=True, evasion=True)
 ```
 
-## Dados locais (fora do repositório)
+## Local data (outside the repository)
 
-| Caminho | Conteúdo |
+| Path | Contents |
 |---|---|
-| `~/.kali-mcp/findings.db` | SQLite com todos os findings por alvo |
-| `~/.kali-mcp/audit.log` | Log de auditoria de toda execução |
-| `~/.kali-mcp/workspaces/` | Relatórios gerados por `gerar_relatorio` |
-| `~/mcps/outputs/kali-mcp/<alvo>/` | Output bruto de cada scan + `session.json` (permite retomar via `retomar_sessao`) |
+| `~/.kali-mcp/findings.db` | SQLite database with all findings per target |
+| `~/.kali-mcp/audit.log` | Audit log of every execution |
+| `~/.kali-mcp/workspaces/` | Reports generated by `generate_report` |
+| `~/mcps/outputs/kali-mcp/<target>/` | Raw output of each scan + `session.json` (enables resuming via `resume_session`) |
 
-## Licença
+## License
 
 [MIT](./LICENSE)
