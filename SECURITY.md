@@ -1,33 +1,35 @@
-# Aviso de uso responsável
+# Responsible Use Notice
 
-O `kali-security-bridge` expõe, via MCP, ferramentas ofensivas reais —
-`nmap`, `sqlmap`, `hydra`, `nuclei`, `ffuf`, entre outras — executadas dentro
-de um container Kali Linux. Isso não é um brinquedo: usado contra um alvo sem
-autorização, é crime na maioria das jurisdições (no Brasil, entre outros,
-pode se enquadrar na Lei 12.737/2012 e no Marco Civil da Internet).
+`kali-security-bridge` exposes, via MCP, real offensive security tools —
+`nmap`, `sqlmap`, `hydra`, `nuclei`, `ffuf`, among others — executed inside a
+Kali Linux container. This is not a toy: using it against a target without
+authorization is a crime in most jurisdictions (in Brazil, for instance, it
+can fall under Law 12.737/2012 and the Marco Civil da Internet; in the US,
+the Computer Fraud and Abuse Act; and equivalent computer-misuse statutes
+apply in most other countries).
 
-## Use apenas em
+## Only use it on
 
-- Sistemas que você possui, **ou**
-- Ambientes com autorização explícita e por escrito (contrato de pentest,
-  bug bounty com escopo definido, laboratório próprio)
+- Systems you own, **or**
+- Environments with explicit, written authorization (a pentest agreement,
+  a bug bounty with a defined scope, your own lab)
 
-## Controles já implementados no projeto
+## Controls already implemented in the project
 
-- **Allowlist obrigatória** (`gerenciar_allowlist`) — nenhum scan roda contra
-  um alvo que não tenha sido explicitamente adicionado antes
-- **Rate limiting** por ferramenta, pra evitar disparo acidental de carga
-- **Audit log** local (`~/.kali-mcp/audit.log`) de toda execução
-- Execução via `docker exec` com lista de argumentos (sem `/bin/sh`),
-  eliminando injeção de shell nos parâmetros repassados às ferramentas
+- **Mandatory allowlist** (`manage_allowlist`) — no scan runs against a
+  target that hasn't been explicitly added beforehand
+- **Per-tool rate limiting**, to prevent accidental load spikes
+- **Local audit log** (`~/.kali-mcp/audit.log`) of every execution
+- Execution via `docker exec` with an argument list (no `/bin/sh`),
+  eliminating shell injection through the parameters passed to the tools
 
-Esses controles reduzem risco de **uso acidental**, mas não substituem
-autorização explícita — a allowlist só impede repetir o alvo errado, não
-valida se você tem permissão para testá-lo.
+These controls reduce the risk of **accidental misuse**, but they do not
+replace explicit authorization — the allowlist only prevents repeating a
+mistaken target, it doesn't verify that you have permission to test it.
 
-## Reportando vulnerabilidades no próprio projeto
+## Reporting vulnerabilities in this project itself
 
-Se você encontrar uma falha de segurança no código deste servidor (ex.: bypass
-da allowlist, escape do container, injeção via parâmetros de tool), abra uma
-issue privada ou entre em contato diretamente com o mantenedor — não abra uma
-issue pública com detalhes de exploração antes de haver uma correção.
+If you find a security flaw in this server's own code (e.g., an allowlist
+bypass, a container escape, injection via tool parameters), open a private
+issue or contact the maintainer directly — do not open a public issue with
+exploitation details before a fix is available.

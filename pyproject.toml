@@ -1,7 +1,7 @@
 [project]
 name = "kali-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP server that bridges Claude to an isolated Kali Linux container for automated, allowlisted web application and infrastructure penetration testing — recon, enumeration, web analysis, exploitation, and reporting."
 requires-python = ">=3.13"
 dependencies = [
     "docker>=7.1.0",

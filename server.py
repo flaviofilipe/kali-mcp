@@ -1,39 +1,40 @@
 """
 Kali Security Bridge — MCP Server v3
 
-Expõe ferramentas de segurança ofensiva executadas dentro do container
-kali-mcp-box via Docker exec. Todos os comandos são passados como lista
-de strings: o Docker usa execve() diretamente, sem /bin/sh, tornando
-metacaracteres de shell (;, &&, |, $(...)) inofensivos no host.
+Exposes offensive security tools executed inside the kali-mcp-box container
+via Docker exec. All commands are passed as a list of strings: Docker uses
+execve() directly, without /bin/sh, so shell metacharacters (;, &&, |, $(...))
+are harmless on the host.
 
-Funcionalidades v3:
-    - 24 ferramentas cobrindo todo o ciclo OWASP de pentest web
-    - Persistência SQLite por alvo (~/.kali-mcp/findings.db)
-    - Allowlist de alvos autorizados (obrigatória antes de qualquer scan)
-    - Audit log de todas as execuções (~/.kali-mcp/audit.log)
-    - Rate limiting por ferramenta para evitar sobrecarga acidental
-    - Orquestração autônoma via pentest_completo() com 16 fases
-    - Geração automática de relatório Markdown ou JSON
-    - WPScan + xmlrpc.php para WordPress profundo
-    - Verificação de arquivos sensíveis expostos
-    - Análise estruturada de headers de segurança e flags de cookies
-    - Fuzzing rápido com ffuf (dirs, parâmetros GET/POST, APIs)
-    - Requisições HTTP customizadas para verificação de evidências
-    - Prova-de-conceito de upload irrestrito de arquivos PHP
-    - Enumeração direta de MySQL exposto (databases, usuários, hashes wp_users)
+v3 features:
+    - 25 tools covering the full OWASP web pentest lifecycle
+    - Per-target SQLite persistence (~/.kali-mcp/findings.db)
+    - Allowlist of authorized targets (required before any scan)
+    - Audit log of every execution (~/.kali-mcp/audit.log)
+    - Per-tool rate limiting to prevent accidental overload
+    - Autonomous orchestration via run_full_pentest() with 16 phases
+    - Automatic Markdown or JSON report generation
+    - WPScan + xmlrpc.php for deep WordPress auditing
+    - Exposed sensitive file detection
+    - Structured analysis of security headers and cookie flags
+    - Fast fuzzing with ffuf (dirs, GET/POST params, APIs)
+    - Custom HTTP requests for evidence verification
+    - Proof-of-concept for unrestricted PHP file upload
+    - Direct enumeration of exposed MySQL (databases, users, wp_users hashes)
 
-Uso:
-    uv run server.py          (stdio — integração local, ex: Claude Code)
-    fastmcp dev server.py     (modo desenvolvimento com inspetor web)
+Usage:
+    uv run server.py          (stdio — local integration, e.g. Claude Code)
+    fastmcp dev server.py     (dev mode with web inspector)
 
     KALI_MCP_TRANSPORT=http uv run server.py
-        Sobe em HTTP (streamable) para acesso remoto via Tailscale, ex: de
-        um Claude Desktop rodando em outra máquina do tailnet.
-        Variáveis:
+        Runs over HTTP (streamable) for remote access via Tailscale, e.g.
+        from a Claude Desktop instance running on another machine on the
+        tailnet.
+        Variables:
           KALI_MCP_TRANSPORT=http   (default: stdio)
-          KALI_MCP_HOST             (default: 127.0.0.1 — setar para o IP
-                                      Tailscale desta máquina para expor só
-                                      no tailnet, nunca 0.0.0.0)
+          KALI_MCP_HOST             (default: 127.0.0.1 — set to this
+                                      machine's Tailscale IP to expose only
+                                      on the tailnet, never 0.0.0.0)
           KALI_MCP_PORT             (default: 8765)
 """
 
@@ -56,11 +57,11 @@ from docker.errors import APIError, DockerException, NotFound
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
-# ── Servidor ──────────────────────────────────────────────────────────────────
+# ── Server ───────────────────────────────────────────────────────────────────
 
-# Auth (AWS Cognito) só é exigida no modo HTTP remoto — o uso local via stdio
-# (Claude Code nesta máquina) continua sem login, já que ali o próprio SO
-# controla quem pode spawnar o processo.
+# Auth (AWS Cognito) is only required in remote HTTP mode — local stdio use
+# (Claude Code on this machine) stays login-free, since the OS itself
+# already controls who can spawn the process.
 _auth = None
 if os.environ.get("KALI_MCP_TRANSPORT", "stdio").lower() == "http":
     from fastmcp.server.auth.providers.aws import AWSCognitoProvider
@@ -76,16 +77,16 @@ if os.environ.get("KALI_MCP_TRANSPORT", "stdio").lower() == "http":
 mcp = FastMCP(
     name="kali-security-bridge",
     instructions=(
-        "Servidor de automação de testes de segurança completo. "
-        "Conecta ao container Kali Linux e executa ferramentas cobrindo todo o ciclo de pentest web: "
-        "reconhecimento → enumeração → análise web → exploração → relatório. "
-        "OBRIGATÓRIO: adicione o alvo à allowlist antes de qualquer scan. "
-        "Use sempre na ordem: verificar_alvo_online → scan_portas_nmap → ferramentas web → exploração → gerar_relatorio."
+        "Complete security testing automation server. "
+        "Connects to a Kali Linux container and runs tools covering the full web pentest lifecycle: "
+        "recon → enumeration → web analysis → exploitation → report. "
+        "REQUIRED: add the target to the allowlist before any scan. "
+        "Always follow this order: check_target_online → scan_ports_nmap → web tools → exploitation → generate_report."
     ),
     auth=_auth,
 )
 
-# ── Configuração ──────────────────────────────────────────────────────────────
+# ── Configuration ────────────────────────────────────────────────────────────
 
 CONTAINER_NAME = "kali-mcp-box"
 BASE_DIR       = Path.home() / ".kali-mcp"
@@ -98,7 +99,7 @@ BASE_DIR.mkdir(parents=True, exist_ok=True)
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# User-Agent de browser real para evasão de WAF/IDS
+# Real browser User-Agent for WAF/IDS evasion
 _STEALTH_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -107,11 +108,11 @@ _STEALTH_UA = (
 _STEALTH_HEADERS = [
     "-H", f"User-Agent: {_STEALTH_UA}",
     "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "-H", "Accept-Language: pt-BR,pt;q=0.9,en;q=0.8",
+    "-H", "Accept-Language: en-US,en;q=0.9",
     "-H", "Accept-Encoding: gzip, deflate",
 ]
 
-# Intervalo mínimo em segundos entre chamadas ao mesmo tool (rate limiting)
+# Minimum interval in seconds between calls to the same tool (rate limiting)
 _RATE_LIMITS: dict[str, float] = {
     "ping":      1.0,
     "nmap":      5.0,
@@ -133,11 +134,11 @@ _RATE_LIMITS: dict[str, float] = {
 _last_call_time: dict[str, float] = {}
 
 
-# ── Persistência de outputs ───────────────────────────────────────────────────
+# ── Output persistence ───────────────────────────────────────────────────────
 
 
 def _target_output_dir(target: str) -> Path:
-    """Retorna (e cria) ~/mcps/outputs/kali-mcp/<host>/ para o alvo."""
+    """Returns (and creates) ~/mcps/outputs/kali-mcp/<host>/ for the target."""
     host = target.lower().split("://")[-1].split("/")[0].split(":")[0]
     safe = re.sub(r"[^\w\-.]", "_", host)
     d = OUTPUTS_DIR / safe
@@ -146,14 +147,14 @@ def _target_output_dir(target: str) -> Path:
 
 
 def _save_scan_output(result: ExecResult) -> None:
-    """Persiste output + atualiza session.json. Nunca levanta exceção."""
+    """Persists output + updates session.json. Never raises."""
     try:
         out_dir = _target_output_dir(result.target)
         ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
         fname   = f"{result.tool}_{ts}.txt"
         body    = result.output or ""
         if result.error:
-            body += f"\n\n[ERRO] {result.error}"
+            body += f"\n\n[ERROR] {result.error}"
         (out_dir / fname).write_text(body, encoding="utf-8")
 
         session_path = out_dir / "session.json"
@@ -172,9 +173,9 @@ def _save_scan_output(result: ExecResult) -> None:
         session["last_updated"] = datetime.now().isoformat()
         session_path.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception:
-        pass  # persistência nunca deve interromper o scan
+        pass  # persistence must never interrupt the scan
 
-# ── Logging / audit ───────────────────────────────────────────────────────────
+# ── Logging / audit ──────────────────────────────────────────────────────────
 
 logging.basicConfig(
     filename=str(LOG_PATH),
@@ -184,11 +185,11 @@ logging.basicConfig(
 )
 _audit = logging.getLogger("audit")
 
-# ── Modelos ───────────────────────────────────────────────────────────────────
+# ── Models ───────────────────────────────────────────────────────────────────
 
 
 class ExecResult(BaseModel):
-    """Resultado padronizado de qualquer execução no container Kali."""
+    """Standardized result of any execution inside the Kali container."""
 
     tool:      str
     target:    str
@@ -198,7 +199,7 @@ class ExecResult(BaseModel):
     error:     str | None = None
 
 
-# ── Banco de dados ────────────────────────────────────────────────────────────
+# ── Database ─────────────────────────────────────────────────────────────────
 
 
 def _init_db() -> None:
@@ -247,18 +248,18 @@ def _save_finding(result: ExecResult) -> None:
         conn.commit()
 
 
-# ── Allowlist ─────────────────────────────────────────────────────────────────
+# ── Allowlist ────────────────────────────────────────────────────────────────
 
 
 def _is_allowed(target: str) -> bool:
-    """Verifica se o alvo (IP, hostname ou URL) está na allowlist."""
+    """Checks whether the target (IP, hostname, or URL) is in the allowlist."""
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute("SELECT entry FROM allowlist").fetchall()
 
     if not rows:
         return False
 
-    # Normaliza: remove esquema URL e porta para comparar só host/IP
+    # Normalize: strip URL scheme and port to compare host/IP only
     normalized = target.lower().split("://")[-1].split("/")[0].split(":")[0]
     entries = [r[0].lower() for r in rows]
     return any(
@@ -267,7 +268,7 @@ def _is_allowed(target: str) -> bool:
     )
 
 
-# ── Rate limiting ─────────────────────────────────────────────────────────────
+# ── Rate limiting ────────────────────────────────────────────────────────────
 
 
 def _rate_limit(tool_name: str) -> None:
@@ -279,7 +280,7 @@ def _rate_limit(tool_name: str) -> None:
     _last_call_time[tool_name] = time.monotonic()
 
 
-# ── Helpers Docker ────────────────────────────────────────────────────────────
+# ── Docker helpers ───────────────────────────────────────────────────────────
 
 
 def _get_container() -> docker.models.containers.Container:
@@ -287,22 +288,22 @@ def _get_container() -> docker.models.containers.Container:
         client = docker.from_env()
     except DockerException as exc:
         raise RuntimeError(
-            "Não foi possível conectar ao Docker. "
-            "Verifique se o daemon está em execução: sudo systemctl start docker"
+            "Could not connect to Docker. "
+            "Check that the daemon is running: sudo systemctl start docker"
         ) from exc
 
     try:
         container = client.containers.get(CONTAINER_NAME)
     except NotFound:
         raise RuntimeError(
-            f"Container '{CONTAINER_NAME}' não encontrado. "
-            "Faça o build e suba: cd ~/mcps/kali-mcp && docker compose up -d --build"
+            f"Container '{CONTAINER_NAME}' not found. "
+            "Build and start it: cd ~/mcps/kali-mcp && docker compose up -d --build"
         )
 
     if container.status != "running":
         raise RuntimeError(
-            f"Container '{CONTAINER_NAME}' existe mas não está rodando "
-            f"(status: {container.status}). Execute: docker compose up -d"
+            f"Container '{CONTAINER_NAME}' exists but is not running "
+            f"(status: {container.status}). Run: docker compose up -d"
         )
 
     return container
@@ -315,21 +316,21 @@ def _exec_in_kali(
     skip_allowlist: bool = False,
 ) -> ExecResult:
     """
-    Executa cmd dentro do container Kali via execve (sem shell intermediário).
-    Aplica verificação de allowlist, rate limiting e grava o resultado no banco.
+    Executes cmd inside the Kali container via execve (no intermediate shell).
+    Applies allowlist verification, rate limiting, and stores the result in the database.
     """
     if not cmd or not all(isinstance(a, str) for a in cmd):
-        raise ValueError("`cmd` deve ser uma lista de strings não-vazia.")
+        raise ValueError("`cmd` must be a non-empty list of strings.")
 
     if not skip_allowlist and not _is_allowed(target):
         result = ExecResult(
             tool=tool_name, target=target, exit_code=-1, success=False, output="",
             error=(
-                f"Alvo '{target}' não está na allowlist. "
-                "Use gerenciar_allowlist(action='add', entry='<alvo>') para autorizar."
+                f"Target '{target}' is not in the allowlist. "
+                "Use manage_allowlist(action='add', entry='<target>') to authorize it."
             ),
         )
-        _audit.warning("BLOQUEADO | tool=%s target=%s | fora da allowlist", tool_name, target)
+        _audit.warning("BLOCKED | tool=%s target=%s | not in allowlist", tool_name, target)
         return result
 
     _rate_limit(tool_name)
@@ -369,32 +370,32 @@ def _exec_in_kali(
     return result
 
 
-# ── Ferramentas MCP ───────────────────────────────────────────────────────────
+# ── MCP tools ────────────────────────────────────────────────────────────────
 
 
 @mcp.tool()
-def gerenciar_allowlist(
+def manage_allowlist(
     action: str,
     entry: str = "",
     note: str = "",
 ) -> dict[str, Any]:
     """
-    Gerencia a allowlist de alvos autorizados para testes.
+    Manages the allowlist of targets authorized for testing.
 
-    NENHUMA ferramenta de scan funcionará sem que o alvo esteja aqui.
-    Configure sempre antes de iniciar um pentest.
+    NO scanning tool will work unless the target is listed here.
+    Always configure this before starting a pentest.
 
     Args:
         action: "add" | "remove" | "list"
-        entry:  IP, hostname ou domínio. Ex: "192.168.1.10", "app.local", "exemplo.com"
-        note:   Contexto de autorização. Ex: "servidor de homologação — autorizado por João em 2025-05-18"
+        entry:  IP, hostname, or domain. E.g.: "192.168.1.10", "app.local", "example.com"
+        note:   Authorization context. E.g.: "staging server — authorized by John on 2025-05-18"
 
     Returns:
-        Resultado da operação e lista atualizada de entradas.
+        Operation result and the updated list of entries.
     """
     if action == "add":
         if not entry:
-            return {"success": False, "error": "entry é obrigatório para action='add'"}
+            return {"success": False, "error": "entry is required for action='add'"}
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO allowlist (entry, added, note) VALUES (?, ?, ?)",
@@ -406,7 +407,7 @@ def gerenciar_allowlist(
 
     if action == "remove":
         if not entry:
-            return {"success": False, "error": "entry é obrigatório para action='remove'"}
+            return {"success": False, "error": "entry is required for action='remove'"}
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute("DELETE FROM allowlist WHERE entry = ?", (entry.lower(),))
             conn.commit()
@@ -424,43 +425,43 @@ def gerenciar_allowlist(
             "total": len(rows),
         }
 
-    return {"success": False, "error": f"action inválida: '{action}'. Use 'add', 'remove' ou 'list'"}
+    return {"success": False, "error": f"invalid action: '{action}'. Use 'add', 'remove', or 'list'"}
 
 
 @mcp.tool()
-def verificar_alvo_online(target: str) -> dict[str, Any]:
+def check_target_online(target: str) -> dict[str, Any]:
     """
-    Verifica se o alvo responde via ping antes de iniciar qualquer scan.
-    Use como primeira verificação para evitar scans desnecessários.
+    Checks whether the target responds to ping before starting any scan.
+    Use this as the first check to avoid unnecessary scans.
 
     Args:
-        target: IP ou hostname. Ex: "192.168.1.10", "app.exemplo.com"
+        target: IP or hostname. E.g.: "192.168.1.10", "app.example.com"
     """
     cmd = ["ping", "-c", "3", "-W", "2", target]
     return _exec_in_kali(cmd, tool_name="ping", target=target).model_dump()
 
 
 @mcp.tool()
-def scan_portas_nmap(
+def scan_ports_nmap(
     target: str,
     flags: str = "-sV -F",
     stealth: bool = False,
 ) -> dict[str, Any]:
     """
-    Realiza varredura de portas usando Nmap. Use SEMPRE como primeira fase.
+    Performs a port scan using Nmap. ALWAYS use this as the first phase.
 
-    Flags comuns:
-      "-sV -F"          → fast scan com detecção de versão — padrão
-      "-sV -O"          → versões + detecção de SO
-      "-p 1-65535 -sV"  → todas as portas
-      "-p 80,443,8080"  → portas específicas
-      "-A"              → agressivo (versão, SO, scripts NSE, traceroute)
-      "--script vuln"   → scripts NSE de vulnerabilidades
+    Common flags:
+      "-sV -F"          → fast scan with version detection — default
+      "-sV -O"          → versions + OS detection
+      "-p 1-65535 -sV"  → all ports
+      "-p 80,443,8080"  → specific ports
+      "-A"              → aggressive (version, OS, NSE scripts, traceroute)
+      "--script vuln"   → NSE vulnerability scripts
 
     Args:
-        target:  IP, hostname ou CIDR. Ex: "192.168.1.1", "10.0.0.0/24"
-        flags:   Flags do Nmap (convertidas via shlex, sem interpretação de shell).
-        stealth: True = timing T2 + scan-delay 1s para evitar IDS/rate-limit.
+        target:  IP, hostname, or CIDR. E.g.: "192.168.1.1", "10.0.0.0/24"
+        flags:   Nmap flags (parsed via shlex, no shell interpretation).
+        stealth: True = T2 timing + 1s scan-delay to avoid IDS/rate-limiting.
     """
     nmap_flags = shlex.split(flags)
     if stealth and "--scan-delay" not in flags:
@@ -470,40 +471,40 @@ def scan_portas_nmap(
 
 
 @mcp.tool()
-def enum_subdominios_subfinder(domain: str) -> dict[str, Any]:
+def enum_subdomains_subfinder(domain: str) -> dict[str, Any]:
     """
-    Enumera subdomínios via reconhecimento passivo usando Subfinder.
-    Use quando o alvo for um domínio público, após o Nmap inicial.
+    Enumerates subdomains via passive reconnaissance using Subfinder.
+    Use when the target is a public domain, after the initial Nmap scan.
 
     Args:
-        domain: Domínio raiz. Ex: "exemplo.com.br", "app.local"
+        domain: Root domain. E.g.: "example.com", "app.local"
     """
     cmd = ["subfinder", "-d", domain, "-silent"]
     return _exec_in_kali(cmd, tool_name="subfinder", target=domain).model_dump()
 
 
 @mcp.tool()
-def scan_diretorios_gobuster(
+def scan_directories_gobuster(
     target_url: str,
     wordlist: str = "/usr/share/wordlists/dirb/common.txt",
     extensions: str = "php,html,js,txt,bak,zip,env",
     evasion: bool = False,
 ) -> dict[str, Any]:
     """
-    Enumera diretórios e arquivos ocultos usando Gobuster.
-    Use após identificar portas HTTP/HTTPS no Nmap, antes do Nikto.
+    Enumerates hidden directories and files using Gobuster.
+    Use after identifying HTTP/HTTPS ports in Nmap, before Nikto.
 
-    Wordlists disponíveis no container:
-      /usr/share/wordlists/dirb/common.txt                           → rápido
-      /usr/share/wordlists/dirb/big.txt                              → médio
-      /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt   → completo
+    Wordlists available in the container:
+      /usr/share/wordlists/dirb/common.txt                           → fast
+      /usr/share/wordlists/dirb/big.txt                              → medium
+      /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt   → thorough
 
     Args:
-        target_url: URL base. Ex: "http://192.168.1.10", "https://app.local:8443"
-        wordlist:   Caminho da wordlist dentro do container.
-        extensions: Extensões a testar, separadas por vírgula.
-        evasion:    True = 5 threads + delay 300ms + User-Agent de browser real.
-                    Use quando o alvo tiver WAF ou rate limiting.
+        target_url: Base URL. E.g.: "http://192.168.1.10", "https://app.local:8443"
+        wordlist:   Path to the wordlist inside the container.
+        extensions: Comma-separated extensions to test.
+        evasion:    True = 5 threads + 300ms delay + real browser User-Agent.
+                    Use when the target has a WAF or rate limiting.
     """
     cmd = [
         "gobuster", "dir",
@@ -520,22 +521,23 @@ def scan_diretorios_gobuster(
 
 
 @mcp.tool()
-def crawl_aplicacao_katana(
+def crawl_application_katana(
     target_url: str,
     depth: int = 3,
     evasion: bool = False,
 ) -> dict[str, Any]:
     """
-    Faz crawling da aplicação web para descobrir endpoints e parâmetros usando Katana.
-    Use após o Gobuster. URLs com parâmetros na saída são candidatas a Dalfox e SQLMap.
+    Crawls the web application to discover endpoints and parameters using Katana.
+    Use after Gobuster. URLs with parameters in the output are candidates for
+    Dalfox and SQLMap.
 
     Args:
-        target_url: URL base. Ex: "http://192.168.1.10"
-        depth:      Profundidade do crawl (1-5). Padrão: 3
-        evasion:    True = rate-limit 5 req/s + headers de browser real.
+        target_url: Base URL. E.g.: "http://192.168.1.10"
+        depth:      Crawl depth (1-5). Default: 3
+        evasion:    True = 5 req/s rate limit + real browser headers.
     """
     if not 1 <= depth <= 5:
-        raise ValueError("depth deve ser entre 1 e 5")
+        raise ValueError("depth must be between 1 and 5")
     cmd = [
         "katana",
         "-u", target_url,
@@ -553,20 +555,20 @@ def crawl_aplicacao_katana(
 
 
 @mcp.tool()
-def scan_vulnerabilidades_nikto(
+def scan_vulnerabilities_nikto(
     target_url: str,
     evasion: bool = False,
 ) -> dict[str, Any]:
     """
-    Executa varredura de vulnerabilidades web usando Nikto.
-    Use quando o Nmap identificar portas HTTP/HTTPS abertas.
+    Runs a web vulnerability scan using Nikto.
+    Use once Nmap identifies open HTTP/HTTPS ports.
 
-    Detecta: arquivos sensíveis expostos, cabeçalhos ausentes, métodos HTTP
-    perigosos, versões desatualizadas, vetores XSS/injeção, SSL/TLS fraco.
+    Detects: exposed sensitive files, missing headers, dangerous HTTP methods,
+    outdated versions, XSS/injection vectors, weak SSL/TLS.
 
     Args:
-        target_url: URL completa. Ex: "http://192.168.1.10", "https://app.local:8443"
-        evasion:    True = User-Agent de browser + pause 2s entre testes.
+        target_url: Full URL. E.g.: "http://192.168.1.10", "https://app.local:8443"
+        evasion:    True = browser User-Agent + 2s pause between tests.
     """
     cmd = [
         "nikto",
@@ -582,15 +584,15 @@ def scan_vulnerabilidades_nikto(
 @mcp.tool()
 def scan_ssl_testssl(target: str, port: int = 443) -> dict[str, Any]:
     """
-    Analisa configuração SSL/TLS usando testssl.sh.
-    Use quando Nmap identificar porta 443 ou outro serviço HTTPS.
+    Analyzes SSL/TLS configuration using testssl.sh.
+    Use when Nmap identifies port 443 or another HTTPS service.
 
-    Detecta: protocolos fracos (SSLv2/v3, TLS 1.0/1.1), cifras fracas,
-    BEAST/POODLE/HEARTBLEED, certificados inválidos/expirados, HSTS ausente.
+    Detects: weak protocols (SSLv2/v3, TLS 1.0/1.1), weak ciphers,
+    BEAST/POODLE/HEARTBLEED, invalid/expired certificates, missing HSTS.
 
     Args:
-        target: IP ou hostname. Ex: "192.168.1.10", "app.exemplo.com"
-        port:   Porta HTTPS. Padrão: 443
+        target: IP or hostname. E.g.: "192.168.1.10", "app.example.com"
+        port:   HTTPS port. Default: 443
     """
     cmd = [
         "testssl.sh",
@@ -609,14 +611,14 @@ def scan_nuclei(
     tags: str = "",
 ) -> dict[str, Any]:
     """
-    Detecta CVEs e vulnerabilidades conhecidas via templates usando Nuclei.
-    Use após o Nikto para cobrir CVEs específicos baseados nas versões identificadas.
+    Detects CVEs and known vulnerabilities via templates using Nuclei.
+    Use after Nikto to cover specific CVEs based on identified versions.
 
     Args:
-        target_url: URL do alvo. Ex: "http://192.168.1.10"
-        severity:   Filtro de severidade. Ex: "high,critical" | "medium,high,critical"
-        tags:       Tags de templates para filtrar. Ex: "wordpress", "apache", "xss,sqli"
-                    Deixe vazio para usar todos os templates da severidade especificada.
+        target_url: Target URL. E.g.: "http://192.168.1.10"
+        severity:   Severity filter. E.g.: "high,critical" | "medium,high,critical"
+        tags:       Template tags to filter by. E.g.: "wordpress", "apache", "xss,sqli"
+                    Leave empty to use all templates for the given severity.
     """
     cmd = [
         "nuclei",
@@ -636,13 +638,13 @@ def scan_nuclei(
 @mcp.tool()
 def scan_xss_dalfox(target_url: str) -> dict[str, Any]:
     """
-    Testa Cross-Site Scripting (XSS) usando Dalfox.
-    Use quando a URL contiver parâmetros GET ou o Katana descobrir formulários.
+    Tests for Cross-Site Scripting (XSS) using Dalfox.
+    Use when the URL contains GET parameters or Katana discovers forms.
 
-    Detecta: Reflected XSS, DOM XSS, bypass de filtros WAF.
+    Detects: Reflected XSS, DOM XSS, WAF filter bypass.
 
     Args:
-        target_url: URL com parâmetros. Ex: "http://app.local/search?q=test"
+        target_url: URL with parameters. E.g.: "http://app.local/search?q=test"
     """
     cmd = [
         "dalfox",
@@ -667,33 +669,33 @@ def brute_force_hydra(
     http_form_fail: str = "ERROR",
 ) -> dict[str, Any]:
     """
-    Testa credenciais fracas em serviços de autenticação usando Hydra.
-    Use quando Nmap identificar SSH, FTP, HTTP-Auth, RDP ou Telnet.
+    Tests weak credentials against authentication services using Hydra.
+    Use when Nmap identifies SSH, FTP, HTTP-Auth, RDP, or Telnet.
 
-    ATENÇÃO: pode bloquear contas ou gerar alertas. Use só em ambientes autorizados.
+    WARNING: may lock accounts or trigger alerts. Use only in authorized environments.
 
-    Serviços válidos: ssh, ftp, http-get, http-post-form, rdp, telnet, smtp, pop3, imap, smb
+    Valid services: ssh, ftp, http-get, http-post-form, rdp, telnet, smtp, pop3, imap, smb
 
-    Para http-post-form, configure:
-      http_form_path: caminho do formulário. Ex: "/wp-login.php", "/login"
-      http_form_data: campos do formulário com ^USER^ e ^PASS^.
-                      Ex: "log=^USER^&pwd=^PASS^&wp-submit=Log+In"
-      http_form_fail: string presente na resposta em caso de falha.
-                      Ex: "ERROR", "Invalid", "incorrect"
+    For http-post-form, configure:
+      http_form_path: form path. E.g.: "/wp-login.php", "/login"
+      http_form_data: form fields with ^USER^ and ^PASS^.
+                      E.g.: "log=^USER^&pwd=^PASS^&wp-submit=Log+In"
+      http_form_fail: string present in the response on failure.
+                      E.g.: "ERROR", "Invalid", "incorrect"
 
     Args:
-        target:         IP ou hostname do alvo.
-        service:        Serviço a testar. Ex: "ssh", "ftp", "http-post-form"
-        port:           Porta do serviço.
-        userlist:       Wordlist de usuários no container.
-        passlist:       Wordlist de senhas no container.
-        http_form_path: Caminho do formulário (só http-post-form).
-        http_form_data: Campos POST com ^USER^ e ^PASS^ (só http-post-form).
-        http_form_fail: String de falha na resposta (só http-post-form).
+        target:         IP or hostname of the target.
+        service:        Service to test. E.g.: "ssh", "ftp", "http-post-form"
+        port:           Service port.
+        userlist:       Username wordlist inside the container.
+        passlist:       Password wordlist inside the container.
+        http_form_path: Form path (http-post-form only).
+        http_form_data: POST fields with ^USER^ and ^PASS^ (http-post-form only).
+        http_form_fail: Failure string in the response (http-post-form only).
     """
     _ALLOWED_SERVICES = {"ssh", "ftp", "http-get", "http-post-form", "rdp", "telnet", "smtp", "pop3", "imap", "smb"}
     if service not in _ALLOWED_SERVICES:
-        raise ValueError(f"Serviço '{service}' inválido. Válidos: {sorted(_ALLOWED_SERVICES)}")
+        raise ValueError(f"Invalid service '{service}'. Valid values: {sorted(_ALLOWED_SERVICES)}")
 
     base_cmd = [
         "hydra",
@@ -722,23 +724,23 @@ def scan_sql_injection_sqlmap(
     level: int = 1,
 ) -> dict[str, Any]:
     """
-    Testa SQL Injection usando SQLMap.
-    Use quando a URL contiver parâmetros GET/POST ou o Nikto reportar possível SQLi.
+    Tests for SQL Injection using SQLMap.
+    Use when the URL contains GET/POST parameters or Nikto reports possible SQLi.
 
-    Escalonamento obrigatório — sempre comece no nível mais baixo:
-      Conservador: risk=1, level=1
-      Moderado:    risk=2, level=3
-      Máximo:      risk=3, level=5  ← pode modificar dados, use só com autorização explícita
+    Mandatory escalation — always start at the lowest level:
+      Conservative: risk=1, level=1
+      Moderate:     risk=2, level=3
+      Maximum:      risk=3, level=5  ← may modify data, use only with explicit authorization
 
     Args:
-        target_url: URL com parâmetros. Ex: "http://app.local/user?id=1"
-        risk:       Nível de risco dos payloads (1-3). Padrão: 1
-        level:      Profundidade dos testes (1-5). Padrão: 1
+        target_url: URL with parameters. E.g.: "http://app.local/user?id=1"
+        risk:       Payload risk level (1-3). Default: 1
+        level:      Test depth (1-5). Default: 1
     """
     if not 1 <= risk <= 3:
-        raise ValueError(f"risk deve ser entre 1 e 3. Recebido: {risk}")
+        raise ValueError(f"risk must be between 1 and 3. Got: {risk}")
     if not 1 <= level <= 5:
-        raise ValueError(f"level deve ser entre 1 e 5. Recebido: {level}")
+        raise ValueError(f"level must be between 1 and 5. Got: {level}")
 
     cmd = [
         "sqlmap",
@@ -755,11 +757,11 @@ def scan_sql_injection_sqlmap(
 @mcp.tool()
 def screenshot_gowitness(target_url: str) -> dict[str, Any]:
     """
-    Captura screenshot da aplicação web para documentar evidências usando Gowitness.
-    Screenshots salvos em /tmp/gowitness/ dentro do container.
+    Captures a screenshot of the web application to document evidence using Gowitness.
+    Screenshots are saved to /tmp/gowitness/ inside the container.
 
     Args:
-        target_url: URL a capturar. Ex: "http://192.168.1.10/admin"
+        target_url: URL to capture. E.g.: "http://192.168.1.10/admin"
     """
     cmd = [
         "gowitness",
@@ -772,20 +774,21 @@ def screenshot_gowitness(target_url: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def verificar_arquivos_expostos(
+def check_exposed_files(
     target_url: str,
     evasion: bool = False,
 ) -> dict[str, Any]:
     """
-    Verifica exposição de arquivos e diretórios sensíveis usando Gobuster com wordlist dedicada.
+    Checks for exposure of sensitive files and directories using Gobuster with a
+    dedicated wordlist.
 
-    Detecta: .env, wp-config.php.bak, phpinfo.php, backup.zip, .git/, debug.log,
-    composer.json, secrets.yml, database.sql, e dezenas de outros arquivos críticos.
-    Use logo após o Gobuster padrão para cobertura específica de leaks.
+    Detects: .env, wp-config.php.bak, phpinfo.php, backup.zip, .git/, debug.log,
+    composer.json, secrets.yml, database.sql, and dozens of other critical files.
+    Use right after standard Gobuster for targeted leak coverage.
 
     Args:
-        target_url: URL base do alvo. Ex: "http://192.168.1.10", "http://vulnwp-app:8080"
-        evasion:    True = 3 threads + delay 500ms + User-Agent real. Use em sites com WAF.
+        target_url: Base URL of the target. E.g.: "http://192.168.1.10", "http://vulnwp-app:8080"
+        evasion:    True = 3 threads + 500ms delay + real User-Agent. Use on sites with a WAF.
     """
     cmd = [
         "gobuster", "dir",
@@ -807,18 +810,18 @@ def scan_wordpress_wpscan(
     aggressive: bool = False,
 ) -> dict[str, Any]:
     """
-    Executa auditoria completa de WordPress usando WPScan.
-    Use quando identificar um site WordPress (wp-login.php, wp-content/ no Gobuster/Nikto).
+    Runs a full WordPress audit using WPScan.
+    Use when a WordPress site is identified (wp-login.php, wp-content/ in Gobuster/Nikto).
 
-    Detecta: plugins e temas vulneráveis, usuários enumerados, senhas fracas,
-    xmlrpc habilitado, configurações inseguras, backups expostos.
+    Detects: vulnerable plugins and themes, enumerated users, weak passwords,
+    enabled xmlrpc, insecure configurations, exposed backups.
 
     Args:
-        target_url:  URL do WordPress. Ex: "http://192.168.1.10", "http://vulnwp-app:8080"
-        enumerate:   O que enumerar. Padrão: "vp,vt,u" (plugins vulneráveis, temas, usuários).
-                     Opções: "vp" plugins vuln, "ap" todos plugins, "vt" temas vuln,
-                             "at" todos temas, "u" usuários, "cb" config backups, "dbe" DB exports
-        aggressive:  True = modo agressivo (mais detalhado, mais lento e ruidoso).
+        target_url:  WordPress URL. E.g.: "http://192.168.1.10", "http://vulnwp-app:8080"
+        enumerate:   What to enumerate. Default: "vp,vt,u" (vulnerable plugins, themes, users).
+                     Options: "vp" vuln plugins, "ap" all plugins, "vt" vuln themes,
+                              "at" all themes, "u" users, "cb" config backups, "dbe" DB exports
+        aggressive:  True = aggressive mode (more thorough, slower and noisier).
     """
     cmd = [
         "wpscan",
@@ -838,7 +841,7 @@ def scan_wordpress_wpscan(
 
 
 @mcp.tool()
-def fazer_requisicao_http(
+def make_http_request(
     url: str,
     method: str = "GET",
     headers: str = "",
@@ -847,18 +850,18 @@ def fazer_requisicao_http(
     timeout: int = 15,
 ) -> dict[str, Any]:
     """
-    Faz requisição HTTP customizada para verificar conteúdo, headers ou testar payloads.
-    Use para confirmar arquivos expostos (.env, phpinfo.php, backups), inspecionar responses
-    de endpoints ou enviar payloads manuais durante verificação de evidências.
+    Makes a custom HTTP request to check content, headers, or test payloads.
+    Use to confirm exposed files (.env, phpinfo.php, backups), inspect endpoint
+    responses, or send manual payloads during evidence verification.
 
     Args:
-        url:               URL completa. Ex: "http://192.168.1.10/.env"
-        method:            Método HTTP. Padrão: "GET". Outros: "POST", "HEAD", "PUT"
-        headers:           Headers extras, um por linha.
-                           Ex: "Authorization: Bearer token\\nX-Custom: value"
-        body:              Corpo da requisição (para POST/PUT). Ex: "user=admin&pass=test"
-        follow_redirects:  Seguir redirects. Padrão: True
-        timeout:           Timeout em segundos. Padrão: 15
+        url:               Full URL. E.g.: "http://192.168.1.10/.env"
+        method:            HTTP method. Default: "GET". Others: "POST", "HEAD", "PUT"
+        headers:           Extra headers, one per line.
+                           E.g.: "Authorization: Bearer token\\nX-Custom: value"
+        body:              Request body (for POST/PUT). E.g.: "user=admin&pass=test"
+        follow_redirects:  Follow redirects. Default: True
+        timeout:           Timeout in seconds. Default: 15
     """
     cmd = [
         "curl", "-s", "-i",
@@ -878,18 +881,18 @@ def fazer_requisicao_http(
 
 
 @mcp.tool()
-def verificar_headers_seguranca(target_url: str) -> dict[str, Any]:
+def check_security_headers(target_url: str) -> dict[str, Any]:
     """
-    Analisa headers de segurança HTTP e flags de cookies do alvo.
-    Retorna análise estruturada: headers presentes, ausentes ou misconfigurados,
-    com severidade (high/medium/low) para cada achado.
+    Analyzes HTTP security headers and cookie flags for the target.
+    Returns a structured analysis: present, missing, or misconfigured headers,
+    with severity (high/medium/low) for each finding.
 
-    Verifica: Content-Security-Policy, X-Frame-Options, X-Content-Type-Options,
+    Checks: Content-Security-Policy, X-Frame-Options, X-Content-Type-Options,
     Strict-Transport-Security, Referrer-Policy, Permissions-Policy,
     CORS (Access-Control-Allow-Origin), cookies (HttpOnly, Secure, SameSite).
 
     Args:
-        target_url: URL do alvo. Ex: "http://192.168.1.10", "https://app.local"
+        target_url: Target URL. E.g.: "http://192.168.1.10", "https://app.local"
     """
     cmd = ["curl", "-s", "-I", "-L", "--max-time", "10", target_url]
     result = _exec_in_kali(cmd, tool_name="curl", target=target_url)
@@ -917,7 +920,7 @@ def verificar_headers_seguranca(target_url: str) -> dict[str, Any]:
             "status":   "present" if value else "missing",
             "value":    value,
             "severity": "info" if value else severity,
-            "detail":   "OK" if value else f"{header} não configurado",
+            "detail":   "OK" if value else f"{header} not configured",
         })
 
     cors = headers.get("access-control-allow-origin")
@@ -925,13 +928,13 @@ def verificar_headers_seguranca(target_url: str) -> dict[str, Any]:
         findings.append({
             "header": "access-control-allow-origin", "status": "misconfigured",
             "value": cors, "severity": "high",
-            "detail": "CORS wildcard — qualquer origem pode fazer requests autenticados",
+            "detail": "CORS wildcard — any origin can make authenticated requests",
         })
     elif cors:
         findings.append({
             "header": "access-control-allow-origin", "status": "present",
             "value": cors, "severity": "info",
-            "detail": "CORS com origem específica",
+            "detail": "CORS with a specific origin",
         })
 
     cookie_issues = []
@@ -941,11 +944,11 @@ def verificar_headers_seguranca(target_url: str) -> dict[str, Any]:
             low = cookie_val.lower()
             issues = []
             if "httponly" not in low:
-                issues.append("HttpOnly ausente — acessível via JS (risco XSS)")
+                issues.append("Missing HttpOnly — accessible via JS (XSS risk)")
             if "secure" not in low:
-                issues.append("Secure ausente — enviado em HTTP não criptografado")
+                issues.append("Missing Secure — sent over unencrypted HTTP")
             if "samesite" not in low:
-                issues.append("SameSite ausente — vulnerável a CSRF")
+                issues.append("Missing SameSite — vulnerable to CSRF")
             if issues:
                 cookie_issues.append({"cookie": cookie_val[:100], "issues": issues})
 
@@ -979,30 +982,30 @@ def scan_fuzzing_ffuf(
     evasion: bool = False,
 ) -> dict[str, Any]:
     """
-    Fuzzing rápido usando ffuf. Mais veloz e flexível que gobuster.
-    Suporta fuzzing de diretórios, parâmetros GET/POST e endpoints de API REST.
+    Fast fuzzing using ffuf. Faster and more flexible than gobuster.
+    Supports directory fuzzing, GET/POST parameters, and REST API endpoints.
 
-    Modos:
-      Diretórios:  target_url="http://app/FUZZ"  (coloque FUZZ diretamente na URL)
-      Parâmetros:  target_url="http://app/page" + param_name="id"  → gera ?id=FUZZ
+    Modes:
+      Directories: target_url="http://app/FUZZ"  (put FUZZ directly in the URL)
+      Parameters:  target_url="http://app/page" + param_name="id"  → generates ?id=FUZZ
       POST body:   method="POST" + param_name="username"
 
-    Wordlists disponíveis:
-      /usr/share/wordlists/dirb/common.txt                          → geral rápido
-      /usr/share/wordlists/dirb/big.txt                             → amplo
-      /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt  → completo
-      /usr/share/wordlists/sensitive-paths.txt                      → arquivos sensíveis
+    Wordlists available:
+      /usr/share/wordlists/dirb/common.txt                          → fast, general
+      /usr/share/wordlists/dirb/big.txt                             → broad
+      /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt  → thorough
+      /usr/share/wordlists/sensitive-paths.txt                      → sensitive files
 
     Args:
-        target_url:   URL com FUZZ embutido, ou URL base quando param_name for fornecido.
-        wordlist:     Caminho da wordlist no container.
-        param_name:   Parâmetro a fuzzar. Gera ?param=FUZZ (GET) ou body param=FUZZ (POST).
-        method:       Método HTTP. Padrão: "GET"
-        match_codes:  Status codes a reportar. Padrão: "200,301,302,403"
-        filter_size:  Filtrar respostas com este tamanho exato (bytes).
-                      Use para esconder a resposta padrão de 404 personalizado.
-        evasion:      True = 5 threads + rate-limit 10 req/s + delay 200ms + User-Agent real.
-                      Use quando o alvo tiver WAF ou rate limiting.
+        target_url:   URL with FUZZ embedded, or base URL when param_name is given.
+        wordlist:     Path to the wordlist inside the container.
+        param_name:   Parameter to fuzz. Generates ?param=FUZZ (GET) or body param=FUZZ (POST).
+        method:       HTTP method. Default: "GET"
+        match_codes:  Status codes to report. Default: "200,301,302,403"
+        filter_size:  Filter out responses of this exact size (bytes).
+                      Use to hide a custom default 404 response.
+        evasion:      True = 5 threads + 10 req/s rate limit + 200ms delay + real User-Agent.
+                      Use when the target has a WAF or rate limiting.
     """
     if param_name:
         if method.upper() == "POST":
@@ -1043,22 +1046,22 @@ def scan_fuzzing_ffuf(
 @mcp.tool()
 def scan_xmlrpc_wordpress(target_url: str) -> dict[str, Any]:
     """
-    Testa o endpoint xmlrpc.php do WordPress para vetores de ataque.
-    Use quando WPScan ou Nikto reportar xmlrpc.php acessível.
+    Tests the WordPress xmlrpc.php endpoint for attack vectors.
+    Use when WPScan or Nikto reports xmlrpc.php as accessible.
 
-    Testa:
-      - Existência e acessibilidade do xmlrpc.php
-      - Enumeração de métodos via system.listMethods
-      - Brute force via system.multicall — bypassa rate limiting (mil logins por request)
-      - Confirmação de credenciais via wp.getUsersBlogs
+    Tests:
+      - Existence and reachability of xmlrpc.php
+      - Method enumeration via system.listMethods
+      - Brute force via system.multicall — bypasses rate limiting (thousands of logins per request)
+      - Credential confirmation via wp.getUsersBlogs
 
     Args:
-        target_url: URL base do WordPress. Ex: "http://192.168.1.10:8080"
+        target_url: Base WordPress URL. E.g.: "http://192.168.1.10:8080"
     """
     xmlrpc_url = target_url.rstrip("/") + "/xmlrpc.php"
     results: dict[str, Any] = {"target": target_url, "xmlrpc_url": xmlrpc_url, "phases": {}}
 
-    # 1. Verificar existência
+    # 1. Check existence
     check = _exec_in_kali(
         ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", xmlrpc_url],
         tool_name="curl", target=target_url,
@@ -1068,12 +1071,12 @@ def scan_xmlrpc_wordpress(target_url: str) -> dict[str, Any]:
 
     if http_code not in ("200", "405"):
         results["accessible"] = False
-        results["summary"]    = f"xmlrpc.php não acessível (HTTP {http_code})."
+        results["summary"]    = f"xmlrpc.php not accessible (HTTP {http_code})."
         return results
 
     results["accessible"] = True
 
-    # 2. Enumerar métodos disponíveis
+    # 2. Enumerate available methods
     list_methods_xml = (
         "<?xml version='1.0'?>"
         "<methodCall><methodName>system.listMethods</methodName><params/></methodCall>"
@@ -1084,7 +1087,7 @@ def scan_xmlrpc_wordpress(target_url: str) -> dict[str, Any]:
     )
     results["phases"]["list_methods"] = {"output": methods.output[:3000]}
 
-    # 3. Multicall brute force com credenciais comuns (3 tentativas)
+    # 3. Multicall brute force with common credentials (3 attempts)
     multicall_xml = (
         "<?xml version='1.0'?><methodCall><methodName>system.multicall</methodName>"
         "<params><param><value><array><data>"
@@ -1114,36 +1117,36 @@ def scan_xmlrpc_wordpress(target_url: str) -> dict[str, Any]:
     auth_ok = any(k in multicall.output for k in ("isAdmin", "blogName", "blogid"))
     results["auth_bypass_found"] = auth_ok
     results["summary"] = (
-        "CRÍTICO: Credenciais válidas confirmadas via xmlrpc multicall!" if auth_ok
-        else "xmlrpc.php exposto. Métodos enumerados. Nenhuma das 3 credenciais de teste confirmou login."
+        "CRITICAL: Valid credentials confirmed via xmlrpc multicall!" if auth_ok
+        else "xmlrpc.php exposed. Methods enumerated. None of the 3 test credentials confirmed a login."
     )
     return results
 
 
 @mcp.tool()
-def testar_upload_arquivo(
+def test_file_upload(
     upload_url: str,
     field_name: str = "file",
     upload_path_hint: str = "/wp-content/uploads/",
 ) -> dict[str, Any]:
     """
-    Verifica vulnerabilidade de upload irrestrito de arquivos (CWE-434).
-    Envia um arquivo PHP de prova-de-conceito inócuo e verifica se é executável.
+    Checks for an unrestricted file upload vulnerability (CWE-434).
+    Sends a harmless proof-of-concept PHP file and checks whether it executes.
 
-    ATENÇÃO: Cria um arquivo PHP sem comandos destrutivos no servidor de teste.
-    Use somente em ambientes autorizados.
+    WARNING: creates a PHP file with no destructive commands on the test server.
+    Use only in authorized environments.
 
     Args:
-        upload_url:       URL do endpoint de upload.
-                          Ex: "http://192.168.1.10/wp-content/plugins/vuln-plugin/upload.php"
-        field_name:       Nome do campo <input type="file"> no formulário. Padrão: "file"
-        upload_path_hint: Caminho base onde o servidor salva uploads.
-                          Ex: "/wp-content/uploads/", "/uploads/", "/files/"
+        upload_url:       Upload endpoint URL.
+                          E.g.: "http://192.168.1.10/wp-content/plugins/vuln-plugin/upload.php"
+        field_name:       Name of the <input type="file"> field in the form. Default: "file"
+        upload_path_hint: Base path where the server stores uploads.
+                          E.g.: "/wp-content/uploads/", "/uploads/", "/files/"
     """
     if not _is_allowed(upload_url):
         return {
             "success": False,
-            "error": f"Alvo '{upload_url}' não está na allowlist. Use gerenciar_allowlist() primeiro.",
+            "error": f"Target '{upload_url}' is not in the allowlist. Use manage_allowlist() first.",
         }
 
     test_id  = uuid.uuid4().hex[:8]
@@ -1165,14 +1168,14 @@ def testar_upload_arquivo(
         "phases":     {},
     }
 
-    # Upload do arquivo PHP de teste
+    # Upload the test PHP file
     upload_result = _exec_in_kali(
         ["curl", "-s", "-i", "-F", f"{field_name}=@/tmp/{filename}", upload_url],
         tool_name="curl", target=upload_url,
     )
     results["phases"]["upload"] = upload_result.model_dump()
 
-    # Tentar extrair URL do arquivo da response; senão, construir URL provável
+    # Try to extract the file URL from the response; otherwise build a likely URL
     base_url     = "/".join(upload_url.split("/")[:3])
     uploaded_url = None
     for token in upload_result.output.split():
@@ -1185,7 +1188,7 @@ def testar_upload_arquivo(
 
     results["likely_url"] = uploaded_url
 
-    # Verificar se o arquivo é acessível e se PHP executou
+    # Check whether the file is accessible and whether PHP executed
     access_result = _exec_in_kali(
         ["curl", "-s", "-L", "--max-time", "10", uploaded_url],
         tool_name="curl", target=uploaded_url,
@@ -1204,26 +1207,26 @@ def testar_upload_arquivo(
         results["php_version"] = php_ver
         results["severity"]    = "critical"
         results["summary"]     = (
-            f"CRÍTICO: Upload e execução de PHP confirmados! "
-            f"PHP {php_ver} executando no servidor. RCE possível via webshell."
+            f"CRITICAL: PHP upload and execution confirmed! "
+            f"PHP {php_ver} running on the server. RCE possible via webshell."
         )
     elif accessible:
         results["severity"] = "high"
         results["summary"]  = (
-            f"ALTO: Arquivo uploaded e acessível em {uploaded_url} "
-            "mas PHP não executou (pode estar bloqueado no diretório de uploads)."
+            f"HIGH: File uploaded and accessible at {uploaded_url} "
+            "but PHP did not execute (may be blocked in the uploads directory)."
         )
     else:
         results["severity"] = "medium"
         results["summary"]  = (
-            "Upload enviado mas arquivo não acessível no caminho esperado. "
-            f"Verifique a response do upload e ajuste upload_path_hint. Tentativa: {uploaded_url}"
+            "Upload sent but the file is not accessible at the expected path. "
+            f"Check the upload response and adjust upload_path_hint. Tried: {uploaded_url}"
         )
     return results
 
 
 @mcp.tool()
-def enumerar_banco_mysql(
+def enumerate_mysql_database(
     host: str,
     port: int = 3306,
     user: str = "root",
@@ -1231,23 +1234,24 @@ def enumerar_banco_mysql(
     database: str = "",
 ) -> dict[str, Any]:
     """
-    Conecta diretamente ao MySQL e enumera bancos, tabelas, usuários e hashes de senha.
-    Use quando Nmap identificar porta 3306 exposta com credenciais fracas.
+    Connects directly to MySQL and enumerates databases, tables, users, and
+    password hashes.
+    Use when Nmap identifies an exposed port 3306 with weak credentials.
 
-    Para WordPress: passe database="wordpress" para extrair hashes da tabela wp_users
-    e quebrá-los offline com hashcat (formato phpass).
+    For WordPress: pass database="wordpress" to extract hashes from the wp_users
+    table and crack them offline with hashcat (phpass format).
 
-    ATENÇÃO: acesso direto ao banco — use somente em ambientes autorizados.
+    WARNING: direct database access — use only in authorized environments.
 
     Args:
-        host:     IP ou hostname do MySQL. Ex: "192.168.1.10", "vulnwp-db"
-        port:     Porta MySQL. Padrão: 3306
-        user:     Usuário. Ex: "root", "wordpress"
-        password: Senha. Ex: "root", "wordpress"
-        database: Banco específico para listar tabelas. Ex: "wordpress"
+        host:     IP or hostname of the MySQL server. E.g.: "192.168.1.10", "vulnwp-db"
+        port:     MySQL port. Default: 3306
+        user:     Username. E.g.: "root", "wordpress"
+        password: Password. E.g.: "root", "wordpress"
+        database: Specific database to list tables for. E.g.: "wordpress"
     """
     if database and not re.match(r"^[a-zA-Z0-9_\-]+$", database):
-        return {"success": False, "error": "database contém caracteres inválidos."}
+        return {"success": False, "error": "database contains invalid characters."}
 
     mysql_base = [
         "mysql",
@@ -1264,7 +1268,7 @@ def enumerar_banco_mysql(
         "phases": {}, "connected": False,
     }
 
-    # 1. Listar bancos de dados
+    # 1. List databases
     db_result = _exec_in_kali(
         mysql_base + ["SHOW DATABASES;"],
         tool_name="mysql", target=host,
@@ -1273,17 +1277,17 @@ def enumerar_banco_mysql(
     results["connected"]            = db_result.success
 
     if not db_result.success:
-        results["summary"] = f"Falha de conexão: {db_result.error or db_result.output}"
+        results["summary"] = f"Connection failed: {db_result.error or db_result.output}"
         return results
 
-    # 2. Usuários e hashes de senha
+    # 2. Users and password hashes
     users_result = _exec_in_kali(
         mysql_base + ["SELECT user, host, authentication_string FROM mysql.user;"],
         tool_name="mysql", target=host,
     )
     results["phases"]["users_hashes"] = users_result.model_dump()
 
-    # 3. Tabelas do banco especificado
+    # 3. Tables in the specified database
     if database:
         tables_result = _exec_in_kali(
             mysql_base + [f"USE `{database}`; SHOW TABLES;"],
@@ -1291,7 +1295,7 @@ def enumerar_banco_mysql(
         )
         results["phases"]["tables"] = tables_result.model_dump()
 
-        # 4. wp_users se for WordPress
+        # 4. wp_users if WordPress
         if "wp_users" in tables_result.output:
             wp_users = _exec_in_kali(
                 mysql_base + [
@@ -1304,22 +1308,22 @@ def enumerar_banco_mysql(
             results["wordpress_hashes_found"]        = "user_pass" in wp_users.output
 
     results["summary"] = (
-        f"Conexão bem-sucedida como {user}@{host}:{port}. "
-        "Veja 'phases' para bancos de dados, usuários e hashes."
+        f"Successfully connected as {user}@{host}:{port}. "
+        "See 'phases' for databases, users, and hashes."
     )
     return results
 
 
 @mcp.tool()
-def retomar_sessao(target: str) -> dict[str, Any]:
+def resume_session(target: str) -> dict[str, Any]:
     """
-    Lista todos os scans salvos em disco para um alvo, permitindo retomar um pentest
-    interrompido sem perder o progresso anterior.
+    Lists all scans saved to disk for a target, allowing you to resume an
+    interrupted pentest without losing previous progress.
 
-    Outputs são salvos automaticamente em ~/mcps/outputs/kali-mcp/<alvo>/ a cada scan.
+    Outputs are automatically saved to ~/mcps/outputs/kali-mcp/<target>/ on every scan.
 
     Args:
-        target: Domínio ou IP do alvo. Ex: "exemplo.com.br", "192.168.1.10"
+        target: Domain or IP of the target. E.g.: "example.com", "192.168.1.10"
     """
     out_dir = _target_output_dir(target)
     session_path = out_dir / "session.json"
@@ -1327,7 +1331,7 @@ def retomar_sessao(target: str) -> dict[str, Any]:
     if not session_path.exists():
         files = sorted(out_dir.glob("*.txt"))
         if not files:
-            return {"success": False, "error": f"Nenhum output encontrado para '{target}' em {out_dir}"}
+            return {"success": False, "error": f"No output found for '{target}' in {out_dir}"}
         return {
             "success":   True,
             "output_dir": str(out_dir),
@@ -1339,7 +1343,7 @@ def retomar_sessao(target: str) -> dict[str, Any]:
     scans   = session.get("scans", [])
     tools_done = [s["tool"] for s in scans]
 
-    # Ler previews dos últimos outputs por ferramenta
+    # Read previews of the latest outputs per tool
     previews: dict[str, str] = {}
     for scan in reversed(scans):
         tool = scan["tool"]
@@ -1356,20 +1360,20 @@ def retomar_sessao(target: str) -> dict[str, Any]:
         "started":     session.get("started"),
         "last_updated": session.get("last_updated"),
         "total_scans": len(scans),
-        "tools_executados": sorted(set(tools_done)),
+        "tools_executed": sorted(set(tools_done)),
         "scans":       scans,
         "previews":    previews,
     }
 
 
 @mcp.tool()
-def listar_findings(target: str = "", limit: int = 50) -> dict[str, Any]:
+def list_findings(target: str = "", limit: int = 50) -> dict[str, Any]:
     """
-    Lista findings registrados no banco de dados, filtrados opcionalmente por alvo.
+    Lists findings stored in the database, optionally filtered by target.
 
     Args:
-        target: Filtro parcial por alvo. Vazio = todos.
-        limit:  Máximo de resultados. Padrão: 50
+        target: Partial target filter. Empty = all.
+        limit:  Maximum number of results. Default: 50
     """
     with sqlite3.connect(DB_PATH) as conn:
         if target:
@@ -1398,14 +1402,14 @@ def listar_findings(target: str = "", limit: int = 50) -> dict[str, Any]:
 
 
 @mcp.tool()
-def gerar_relatorio(target: str, formato: str = "markdown") -> dict[str, Any]:
+def generate_report(target: str, output_format: str = "markdown") -> dict[str, Any]:
     """
-    Gera relatório consolidado de todos os findings de um alvo.
-    Arquivo salvo em ~/.kali-mcp/workspaces/<alvo>_<timestamp>.<ext>
+    Generates a consolidated report of all findings for a target.
+    File saved to ~/.kali-mcp/workspaces/<target>_<timestamp>.<ext>
 
     Args:
-        target:  Alvo a consolidar. Ex: "192.168.1.10", "app.local"
-        formato: "markdown" (padrão) ou "json"
+        target:        Target to consolidate. E.g.: "192.168.1.10", "app.local"
+        output_format: "markdown" (default) or "json"
     """
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
@@ -1415,7 +1419,7 @@ def gerar_relatorio(target: str, formato: str = "markdown") -> dict[str, Any]:
         ).fetchall()
 
     if not rows:
-        return {"success": False, "error": f"Nenhum finding encontrado para '{target}'"}
+        return {"success": False, "error": f"No findings found for '{target}'"}
 
     findings = [
         {
@@ -1430,7 +1434,7 @@ def gerar_relatorio(target: str, formato: str = "markdown") -> dict[str, Any]:
     safe_target = target.replace("/", "_").replace(":", "_").replace(".", "_")
     tools_used  = sorted({f["tool"] for f in findings})
 
-    if formato == "json":
+    if output_format == "json":
         content = json.dumps(
             {"target": target, "generated": now.isoformat(), "findings": findings},
             indent=2, ensure_ascii=False,
@@ -1440,37 +1444,37 @@ def gerar_relatorio(target: str, formato: str = "markdown") -> dict[str, Any]:
         total   = len(findings)
         success = sum(1 for f in findings if f["success"])
         lines   = [
-            f"# Relatório de Segurança — {target} — {now.strftime('%Y-%m-%d %H:%M')}",
+            f"# Security Report — {target} — {now.strftime('%Y-%m-%d %H:%M')}",
             "",
-            "## Escopo Testado",
-            f"- **Alvo:** `{target}`",
-            f"- **Ferramentas executadas:** {', '.join(tools_used)}",
-            f"- **Total de scans:** {total}  |  **Bem-sucedidos:** {success}  |  **Com erro:** {total - success}",
-            f"- **Gerado em:** {now.isoformat()}",
+            "## Scope Tested",
+            f"- **Target:** `{target}`",
+            f"- **Tools executed:** {', '.join(tools_used)}",
+            f"- **Total scans:** {total}  |  **Successful:** {success}  |  **Failed:** {total - success}",
+            f"- **Generated at:** {now.isoformat()}",
             "",
             "---",
             "",
-            "## Findings por Ferramenta",
+            "## Findings by Tool",
             "",
         ]
         for f in findings:
-            status = "OK" if f["success"] else "FALHOU"
+            status = "OK" if f["success"] else "FAILED"
             lines += [
                 f"### [{status}] {f['tool'].upper()} — {f['timestamp']}",
-                f"**Alvo:** `{f['target']}`  |  **Exit code:** `{f['exit_code']}`",
+                f"**Target:** `{f['target']}`  |  **Exit code:** `{f['exit_code']}`",
                 "",
             ]
             if f["error"]:
-                lines += [f"> **Erro:** {f['error']}", ""]
+                lines += [f"> **Error:** {f['error']}", ""]
             if f["output"]:
                 preview = f["output"][:5000]
-                truncated = " *(truncado — veja o arquivo completo)*" if len(f["output"]) > 5000 else ""
+                truncated = " *(truncated — see the full file)*" if len(f["output"]) > 5000 else ""
                 lines += [f"```\n{preview}\n```{truncated}", ""]
             lines += ["---", ""]
 
         lines += [
-            "## Sumário de Execuções",
-            "| Ferramenta | Status | Timestamp |",
+            "## Execution Summary",
+            "| Tool | Status | Timestamp |",
             "|---|---|---|",
         ]
         for f in findings:
@@ -1487,47 +1491,47 @@ def gerar_relatorio(target: str, formato: str = "markdown") -> dict[str, Any]:
         "target":         target,
         "findings_count": len(findings),
         "output_file":    str(output_path),
-        "formato":        formato,
+        "output_format":  output_format,
         "preview":        content[:3000],
     }
 
 
 @mcp.tool()
-def pentest_completo(
+def run_full_pentest(
     target: str,
     target_url: str = "",
     include_brute_force: bool = False,
     evasion: bool = False,
 ) -> dict[str, Any]:
     """
-    Executa o pipeline completo de pentest de forma autônoma na ordem correta.
+    Runs the full pentest pipeline autonomously in the correct order.
 
-    Pipeline executado:
-      1.  Ping                      — verifica se o alvo está online
-      2.  Nmap                      — reconhecimento de portas e serviços
-      3.  Subfinder                 — enumeração de subdomínios (se for domínio)
-      4.  Gobuster                  — enumeração de diretórios/arquivos ocultos
-      5.  Arquivos sensíveis        — verifica .env, backups, phpinfo etc.
-      6.  Nikto                     — análise de vulnerabilidades web
-      7.  Headers de segurança      — CSP, X-Frame-Options, HSTS, cookies
-      8.  Nuclei                    — detecção de CVEs (+ tags wordpress se detectado)
-      9.  WPScan                    — auditoria WordPress profunda (se detectado)
-      10. xmlrpc.php                — brute force e enumeração xmlrpc (se WordPress)
-      11. Testssl                   — análise SSL/TLS (somente se HTTPS)
-      12. Katana                    — crawling com XHR e descoberta de parâmetros
-      13. Dalfox                    — XSS nos parâmetros descobertos
-      14. SQLMap                    — SQL Injection nos parâmetros descobertos
-      15. Hydra                     — brute force SSH/FTP (somente se include_brute_force=True)
-      16. Relatório                 — consolidação automática em Markdown
+    Pipeline executed:
+      1.  Ping                      — checks whether the target is online
+      2.  Nmap                      — port and service reconnaissance
+      3.  Subfinder                 — subdomain enumeration (if a domain)
+      4.  Gobuster                  — hidden directory/file enumeration
+      5.  Exposed files             — checks .env, backups, phpinfo, etc.
+      6.  Nikto                     — web vulnerability analysis
+      7.  Security headers          — CSP, X-Frame-Options, HSTS, cookies
+      8.  Nuclei                    — CVE detection (+ wordpress tags if detected)
+      9.  WPScan                    — deep WordPress audit (if detected)
+      10. xmlrpc.php                — xmlrpc brute force and enumeration (if WordPress)
+      11. Testssl                   — SSL/TLS analysis (HTTPS only)
+      12. Katana                    — crawling with XHR and parameter discovery
+      13. Dalfox                    — XSS on discovered parameters
+      14. SQLMap                    — SQL Injection on discovered parameters
+      15. Hydra                     — SSH/FTP brute force (only if include_brute_force=True)
+      16. Report                    — automatic Markdown consolidation
 
-    ATENÇÃO: pode levar 25-60 minutos dependendo do alvo e da superfície exposta.
+    WARNING: can take 25-60 minutes depending on the target and exposed surface.
 
     Args:
-        target:               IP ou hostname do alvo. Ex: "192.168.1.10", "app.local"
-        target_url:           URL base (inferida do Nmap se omitida).
-        include_brute_force:  Incluir Hydra no pipeline. Requer autorização explícita.
-        evasion:              True = scans lentos com UA real para evitar WAF/rate-limit.
-                              Recomendado para alvos externos (produção, hospedagem compartilhada).
+        target:               IP or hostname of the target. E.g.: "192.168.1.10", "app.local"
+        target_url:           Base URL (inferred from Nmap if omitted).
+        include_brute_force:  Include Hydra in the pipeline. Requires explicit authorization.
+        evasion:              True = slow scans with a real UA to avoid WAF/rate-limiting.
+                              Recommended for external targets (production, shared hosting).
     """
     results: dict[str, Any] = {
         "target":    target,
@@ -1537,7 +1541,7 @@ def pentest_completo(
         "warnings":  [],
     }
 
-    # ── Parâmetros de evasão usados nos comandos inline ──
+    # ── Evasion parameters used in inline commands ──
     _gb_threads  = ["5"] if evasion else ["20"]
     _gb_delay    = ["--delay", "300ms"] if evasion else []
     _gb_ua       = ["-a", _STEALTH_UA] if evasion else []
@@ -1549,7 +1553,7 @@ def pentest_completo(
     ping = _exec_in_kali(["ping", "-c", "3", "-W", "2", target], "ping", target)
     results["phases"]["ping"] = ping.model_dump()
     if not ping.success:
-        results["warnings"].append("Alvo não respondeu ao ping — pode estar offline ou bloquear ICMP. Continuando assim mesmo.")
+        results["warnings"].append("Target did not respond to ping — it may be offline or blocking ICMP. Continuing anyway.")
 
     # ── 2. Nmap ──
     nmap = _exec_in_kali(
@@ -1558,7 +1562,7 @@ def pentest_completo(
     )
     results["phases"]["nmap"] = nmap.model_dump()
 
-    # Detectar portas web, SSH e FTP no output
+    # Detect web, SSH, and FTP ports in the output
     web_ports: list[int] = []
     has_ssh = has_ftp = False
     for line in nmap.output.splitlines():
@@ -1573,7 +1577,7 @@ def pentest_completo(
         if "21/tcp" in line:
             has_ftp = True
 
-    # Inferir URL base se não fornecida
+    # Infer base URL if not provided
     if not target_url and web_ports:
         proto = "https" if (443 in web_ports or 8443 in web_ports) else "http"
         port  = web_ports[0]
@@ -1587,12 +1591,12 @@ def pentest_completo(
     results["has_ssh"]          = has_ssh
     results["has_ftp"]          = has_ftp
 
-    # ── 3. Subfinder (somente domínios) ──
+    # ── 3. Subfinder (domains only) ──
     if not target.replace(".", "").isdigit():
         sub = _exec_in_kali(["subfinder", "-d", target, "-silent"], "subfinder", target)
         results["phases"]["subfinder"] = sub.model_dump()
 
-    # ── Fases web (somente se URL disponível) ──
+    # ── Web phases (only if a URL is available) ──
     if target_url:
         is_https = target_url.startswith("https")
 
@@ -1610,14 +1614,14 @@ def pentest_completo(
         )
         results["phases"]["gobuster"] = gobuster.model_dump()
 
-        # Detectar WordPress pelo output do Gobuster + Nmap
+        # Detect WordPress from Gobuster + Nmap output
         is_wordpress = any(
             kw in gobuster.output.lower() or kw in nmap.output.lower()
             for kw in ("wp-login", "wp-content", "wp-admin", "wordpress")
         )
         results["is_wordpress"] = is_wordpress
 
-        # ── 5. Arquivos sensíveis expostos ──
+        # ── 5. Exposed sensitive files ──
         exposed = _exec_in_kali(
             [
                 "gobuster", "dir",
@@ -1629,7 +1633,7 @@ def pentest_completo(
             ],
             "gobuster", target_url,
         )
-        results["phases"]["arquivos_expostos"] = exposed.model_dump()
+        results["phases"]["exposed_files"] = exposed.model_dump()
 
         # ── 6. Nikto ──
         nikto = _exec_in_kali(
@@ -1638,7 +1642,7 @@ def pentest_completo(
         )
         results["phases"]["nikto"] = nikto.model_dump()
 
-        # ── 7. Headers de segurança ──
+        # ── 7. Security headers ──
         headers_cmd = ["curl", "-s", "-I", "-L", "--max-time", "10", target_url]
         headers_raw = _exec_in_kali(headers_cmd, "curl", target_url)
         _parsed_headers: dict[str, str] = {}
@@ -1655,14 +1659,14 @@ def pentest_completo(
              "severity": "info" if _parsed_headers.get(h) else sev}
             for h, sev in _EXPECTED.items()
         ]
-        results["phases"]["headers_seguranca"] = {
+        results["phases"]["security_headers"] = {
             "tool": "curl-headers", "target": target_url,
             "exit_code": headers_raw.exit_code, "success": headers_raw.success,
             "findings": _header_findings,
             "raw": headers_raw.output[:2000],
         }
 
-        # ── 8. Nuclei (com tags wordpress se detectado) ──
+        # ── 8. Nuclei (with wordpress tags if detected) ──
         nuclei_cmd = [
             "nuclei", "-u", target_url,
             "-severity", "medium,high,critical",
@@ -1675,7 +1679,7 @@ def pentest_completo(
         nuclei = _exec_in_kali(nuclei_cmd, "nuclei", target_url)
         results["phases"]["nuclei"] = nuclei.model_dump()
 
-        # ── 9. WPScan (somente se WordPress detectado) ──
+        # ── 9. WPScan (only if WordPress detected) ──
         if is_wordpress:
             wpscan = _exec_in_kali(
                 [
@@ -1691,7 +1695,7 @@ def pentest_completo(
             )
             results["phases"]["wpscan"] = wpscan.model_dump()
 
-            # ── 10. xmlrpc (se WordPress) ──
+            # ── 10. xmlrpc (if WordPress) ──
             xmlrpc_url = target_url.rstrip("/") + "/xmlrpc.php"
             xmlrpc_check = _exec_in_kali(
                 ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", xmlrpc_url],
@@ -1703,7 +1707,7 @@ def pentest_completo(
             else:
                 results["phases"]["xmlrpc"] = {"accessible": False, "http_code": xmlrpc_check.output.strip()}
 
-        # ── 11. Testssl (somente HTTPS) ──
+        # ── 11. Testssl (HTTPS only) ──
         if is_https:
             host_port = target_url.replace("https://", "")
             if ":" not in host_port:
@@ -1714,7 +1718,7 @@ def pentest_completo(
             )
             results["phases"]["testssl"] = testssl.model_dump()
 
-        # ── 12. Katana (crawling com XHR) ──
+        # ── 12. Katana (crawling with XHR) ──
         katana = _exec_in_kali(
             [
                 "katana", "-u", target_url,
@@ -1726,7 +1730,7 @@ def pentest_completo(
         )
         results["phases"]["katana"] = katana.model_dump()
 
-        # Extrair URLs com parâmetros do output do Katana
+        # Extract URLs with parameters from the Katana output
         param_urls = [
             line.strip()
             for line in katana.output.splitlines()
@@ -1734,7 +1738,7 @@ def pentest_completo(
         ]
         results["param_urls_found"] = param_urls
 
-        # ── 13 + 14. Dalfox e SQLMap (nos parâmetros encontrados) ──
+        # ── 13 + 14. Dalfox and SQLMap (on discovered parameters) ──
         if param_urls:
             test_url = param_urls[0]
 
@@ -1756,17 +1760,17 @@ def pentest_completo(
             results["phases"]["sqlmap"] = sqlmap.model_dump()
         else:
             results["warnings"].append(
-                "Katana não encontrou URLs com parâmetros — Dalfox e SQLMap pulados. "
-                "Execute manualmente se identificar endpoints manuais."
+                "Katana found no URLs with parameters — Dalfox and SQLMap skipped. "
+                "Run them manually if you identify endpoints by hand."
             )
 
     else:
         results["warnings"].append(
-            "Nenhuma porta web identificada pelo Nmap — fases web puladas. "
-            "Se o alvo tiver web em porta não-padrão, passe target_url manualmente."
+            "No web port identified by Nmap — web phases skipped. "
+            "If the target has a web service on a non-standard port, pass target_url manually."
         )
 
-    # ── 15. Hydra (opcional) ──
+    # ── 15. Hydra (optional) ──
     if include_brute_force:
         if has_ssh:
             hydra_ssh = _exec_in_kali(
@@ -1794,8 +1798,8 @@ def pentest_completo(
             )
             results["phases"]["hydra_ftp"] = hydra_ftp.model_dump()
 
-    # ── 16. Relatório ──
-    report = gerar_relatorio(target, formato="markdown")
+    # ── 16. Report ──
+    report = generate_report(target, output_format="markdown")
     results["report"]    = report
     results["finished"]  = datetime.now().isoformat()
     results["phases_run"] = list(results["phases"].keys())
@@ -1803,16 +1807,16 @@ def pentest_completo(
     return results
 
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
+# ── Entrypoint ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     if os.environ.get("KALI_MCP_TRANSPORT", "stdio").lower() == "http":
-        # Modo remoto: pensado para acesso via Tailscale. Nunca faça bind
-        # em 0.0.0.0 aqui — isso exporia ferramentas ofensivas (hydra,
-        # sqlmap, upload de PHP malicioso etc.) a qualquer rede local.
+        # Remote mode: intended for access via Tailscale. Never bind
+        # to 0.0.0.0 here — that would expose offensive tools (hydra,
+        # sqlmap, malicious PHP upload, etc.) to any local network.
         host = os.environ.get("KALI_MCP_HOST", "127.0.0.1")
         port = int(os.environ.get("KALI_MCP_PORT", "8765"))
-        logging.info(f"Kali MCP Bridge (HTTP) em http://{host}:{port}/mcp")
+        logging.info(f"Kali MCP Bridge (HTTP) at http://{host}:{port}/mcp")
         mcp.run(transport="http", host=host, port=port)
     else:
         mcp.run()
