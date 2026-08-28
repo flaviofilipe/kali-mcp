@@ -122,3 +122,25 @@ docker compose -f docker-compose.test.yml down -v
 CI (`.github/workflows/test.yml`) runs the fast suite on every PR, and the
 integration suite on push to `main` or when a PR carries the
 `run-integration` label.
+
+## Adding a tutorial for a new AI client
+
+Client setup guides live in [`docs/tutorials/`](./docs/tutorials/), one
+file per client, so `README.md` stays a short index rather than growing a
+new multi-paragraph section for every client that speaks MCP. To add one:
+
+1. If the client connects over local `stdio` (client and server on the
+   same machine), copy [`docs/tutorials/claude-code.md`](./docs/tutorials/claude-code.md)
+   as a template.
+2. If it connects remotely over HTTPS/OAuth (client on a different
+   machine), copy [`docs/tutorials/claude-desktop.md`](./docs/tutorials/claude-desktop.md)
+   or [`docs/tutorials/chatgpt.md`](./docs/tutorials/chatgpt.md) as a
+   template — keep the shared Cognito/Cloudflare setup itself in
+   [`docs/tutorials/remote-https-setup.md`](./docs/tutorials/remote-https-setup.md)
+   rather than repeating it; your new file should only cover the
+   client-specific "where do I paste the URL" steps and link back to it.
+3. Add a row for it in [`docs/tutorials/README.md`](./docs/tutorials/README.md)'s
+   index table and in the table in `README.md`'s "Tutorials" section.
+4. If you tested it end-to-end yourself, say so in the guide (see how
+   `claude-desktop.md` and `chatgpt.md` differ on this) — don't claim a
+   flow works unless you've actually walked through it.
