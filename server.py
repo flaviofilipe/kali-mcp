@@ -52,6 +52,9 @@ import tools.sessions       # noqa: F401,E402
 import tools.active_directory  # noqa: F401,E402
 import tools.post_exploitation  # noqa: F401,E402
 import tools.pivoting       # noqa: F401,E402
+import tools.forensics      # noqa: F401,E402
+import tools.crypto_binary  # noqa: F401,E402
+import tools.secrets_js     # noqa: F401,E402
 import tools.governance     # noqa: F401,E402
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────

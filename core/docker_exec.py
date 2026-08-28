@@ -6,6 +6,8 @@ of args — never a shell string), gated by the allowlist and rate limiter.
 
 from __future__ import annotations
 
+import base64
+
 import docker
 from docker.errors import APIError, DockerException, NotFound
 
@@ -100,3 +102,22 @@ def exec_in_kali(
     save_finding(result)
     save_scan_output(result)
     return result
+
+
+def write_file(path: str, content: str) -> str | None:
+    """
+    Writes `content` to `path` inside the Kali container. Content is
+    base64-encoded before crossing the exec_run() boundary so arbitrary
+    bytes (quotes, newlines, shell metacharacters — e.g. a whole pwntools
+    script) never need shell-escaping. Returns an error message, or None
+    on success.
+    """
+    encoded = base64.b64encode(content.encode("utf-8")).decode("ascii")
+    try:
+        container = get_container()
+    except RuntimeError as exc:
+        return str(exc)
+    exit_code, raw = container.exec_run(["sh", "-c", f"echo {encoded} | base64 -d > {path}"])
+    if exit_code != 0:
+        return raw.decode("utf-8", errors="replace") if raw else "Failed to write file."
+    return None
