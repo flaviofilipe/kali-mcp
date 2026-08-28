@@ -26,8 +26,15 @@ def allowlist_db(tmp_path, monkeypatch):
 
 @pytest.fixture
 def no_rate_limit(monkeypatch):
-    """Rate limiting has its own dedicated tests — everywhere else, skip the sleep."""
+    """
+    Rate limiting has its own dedicated tests (tests/security/test_rate_limit.py)
+    — everywhere else, skip the sleep. core.docker_exec did
+    `from core.security import rate_limit`, which binds its own reference at
+    import time, so patching core.security.rate_limit alone would not reach
+    it — patch both call sites.
+    """
     monkeypatch.setattr(security, "rate_limit", lambda tool_name: None)
+    monkeypatch.setattr(docker_exec, "rate_limit", lambda tool_name: None)
 
 
 class FakeContainer:
