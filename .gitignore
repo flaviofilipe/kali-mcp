@@ -16,3 +16,6 @@ wheels/
 # Config local do Claude Code (paths de máquina, allowlists de permissão —
 # nunca deve ir pro histórico do git, independente de config global)
 .claude/settings.local.json
+
+# pytest
+.pytest_cache/
