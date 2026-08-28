@@ -1,22 +1,30 @@
 # kali-security-bridge
 
+[![test](https://github.com/flaviofilipe/kali-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/flaviofilipe/kali-mcp/actions/workflows/test.yml)
+
 An [MCP](https://modelcontextprotocol.io) server that gives Claude (or any
 MCP-compatible AI agent) a complete offensive security testing toolkit —
-reconnaissance, enumeration, web analysis, and exploitation — running
+reconnaissance, enumeration, web analysis, exploitation, credential access,
+Active Directory lateral movement, post-exploitation, and pivoting — running
 inside an isolated Kali Linux container, with a mandatory target allowlist,
-rate limiting, and a full audit log.
+rate limiting, a confirmation gate on high-risk actions, and a full audit log.
 
 In short: **AI-driven penetration testing automation**, safely sandboxed in
-Docker, exposed as MCP tools so Claude Code or Claude Desktop can run a full
-web app / WordPress / network pentest — Nmap port scanning, Nikto and Nuclei
-vulnerability scanning, Gobuster/ffuf directory brute forcing, SQLMap SQL
-injection testing, Hydra credential brute forcing, WPScan WordPress
-auditing, and automated Markdown/JSON reporting — all from a chat
+Docker, exposed as 59 MCP tools so Claude Code, Claude Desktop, ChatGPT, or
+any other MCP-compatible client can run a full web app / WordPress /
+network / Active Directory pentest — Nmap port
+scanning, Nikto and Nuclei vulnerability scanning, Gobuster/ffuf directory
+brute forcing, SQLMap SQL injection testing, Hydra credential brute forcing,
+WPScan WordPress auditing, John/Hashcat hash cracking, Metasploit, reverse
+shell and evil-winrm session management, Impacket/BloodHound/NetExec Active
+Directory tooling, LinPEAS/WinPEAS privilege-escalation enumeration, Chisel/
+ligolo-ng pivoting, and automated Markdown/JSON reporting — all from a chat
 conversation.
 
 > ⚠️ Read [`SECURITY.md`](./SECURITY.md) before using this. This project runs
-> real offensive tools (`hydra`, `sqlmap`, malicious file upload as a PoC,
-> etc.) — only ever against targets you have explicit authorization to test.
+> real offensive tools (`hydra`, `sqlmap`, `metasploit`, credential dumping,
+> lateral movement, etc.) — only ever against targets you have explicit
+> authorization to test.
 
 ## Table of contents
 
@@ -24,15 +32,14 @@ conversation.
 - [Minimum requirements](#minimum-requirements)
 - [Tools available in the container](#tools-available-in-the-container)
 - [Starting the Docker image](#starting-the-docker-image)
-- [Connecting to Claude Code (local, stdio)](#connecting-to-claude-code-local-stdio)
-- [Connecting to Claude Desktop (remote, via Cloudflare Tunnel)](#connecting-to-claude-desktop-remote-via-cloudflare-tunnel)
+- [Tutorials — connecting an AI client](#tutorials--connecting-an-ai-client)
 - [MCP tools — reference and usage examples](#mcp-tools--reference-and-usage-examples)
 - [Local data](#local-data-outside-the-repository)
 
 ## Architecture and infrastructure
 
 ```
-Claude (Code / Desktop)
+AI client (Claude Code / Claude Desktop / ChatGPT / ...)
         │  MCP — local stdio, OR remote HTTP with OAuth
         ▼
    server.py (FastMCP)  ──docker exec (no shell)──▶  kali-mcp-box container
@@ -49,7 +56,7 @@ The project uses two topologies, depending on who's connecting:
 | **FastMCP** (Python) | always | Implements the MCP protocol and exposes the tools; runs over `stdio` (local) or `http` (remote) |
 | **systemd (`--user`)** | remote mode | Keeps the HTTP server alive as a persistent service, with automatic restart and reboot survival (`loginctl enable-linger`) |
 | **AWS Cognito** | remote mode | OAuth 2.1 Authorization Server — requires login before any tool call when exposed over HTTP. Never used in local stdio mode |
-| **Cloudflare Tunnel** (`cloudflared`) | remote mode | Exposes the server on a real public domain with valid TLS. **Needed even for personal remote use**: Claude Desktop's OAuth registration is done by *Anthropic's backend*, which can't reach domains that only exist on private DNS/VPN (e.g. Tailscale's `.ts.net`) |
+| **Cloudflare Tunnel** (`cloudflared`) | remote mode | Exposes the server on a real public domain with valid TLS. **Needed even for personal remote use**: OAuth registration for clients like Claude Desktop or ChatGPT is done by *the vendor's own backend* (Anthropic's, OpenAI's), which can't reach domains that only exist on private DNS/VPN (e.g. Tailscale's `.ts.net`) — see [why HTTPS is required](./docs/tutorials/remote-https-setup.md#why-https-is-required) |
 
 No GPU/CUDA is involved anywhere in this — see the requirements section.
 
@@ -87,6 +94,7 @@ Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 | Tool | Category |
 |---|---|
 | `nmap` | Port/service scanning |
+| `smbclient` | SMB browsing |
 | `nikto` | Web vulnerability scanning |
 | `testssl.sh` | SSL/TLS analysis |
 | `wpscan` | WordPress security auditing |
@@ -94,11 +102,18 @@ Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 | `hydra` | Credential brute forcing |
 | `gobuster`, `dirb` | Directory enumeration |
 | `ffuf` | Fast fuzzing |
+| `metasploit-framework` | Exploitation (msfvenom, msfconsole) |
+| `john`, `hashcat`, `hashid` | Hash identification / cracking |
+| `exploitdb` (`searchsploit`) | Public-exploit lookup |
+| `proxychains4` | Routing tool traffic through a pivot tunnel |
+| `radare2`, `gdb`, `binwalk`, `exiftool`, `steghide` | Reverse engineering / forensics |
 | `mariadb-client` | Direct MySQL/MariaDB enumeration |
+| `tmux`, `netcat-traditional` | Session management (keeps a reverse shell alive across MCP calls) |
 | `curl`, `wget`, `chromium` | HTTP requests / rendering |
 
-Compiled from source in a separate Go builder stage (`golang:1.24-bookworm`),
-with only the final binaries copied into the image (keeps the final image lean):
+Compiled from source or fetched as a pinned prebuilt release in a separate Go
+builder stage (`golang:1.24-bookworm`), with only the final binaries copied
+into the image (keeps the final image lean):
 
 | Tool | Category |
 |---|---|
@@ -107,7 +122,38 @@ with only the final binaries copied into the image (keeps the final image lean):
 | `nuclei` | Template-based CVE detection (updated at build time) |
 | `dalfox` | XSS detection |
 | `gowitness` | Screenshot evidence capture |
-| `httpx` | Batch HTTP probing |
+| `httpx-projectdiscovery` | Batch HTTP probing — renamed from `httpx`; that name is shadowed by the Python `httpx` HTTP-client library installed in `/opt/pymcp-venv` (see the Dockerfile comment) |
+| `chisel` | Reverse-tunnel pivoting |
+| `trufflehog` | Git/filesystem secret scanning |
+| `ligolo-ng` (proxy + agent) | Full-network pivoting via a routed tun interface |
+
+Installed via a dedicated `uv`-managed Python venv (`/opt/pymcp-venv`, kept
+off Kali's system Python), or git-cloned at a pinned tag/commit when there's
+no usable PyPI package:
+
+| Tool | Category |
+|---|---|
+| `netexec` (`nxc`) | AD/SMB enumeration and lateral movement (successor to CrackMapExec) |
+| `impacket` (`impacket-secretsdump`, `impacket-psexec`, ...) | AD credential dumping and lateral movement |
+| `bloodhound-python` | Active Directory attack-path collection |
+| `enum4linux-ng` | SMB/AD enumeration |
+| `volatility3` (`vol`) | Memory forensics |
+| `angr` | Binary symbolic execution |
+| `pwntools` | CTF/binary-exploitation scripting |
+| `SecretFinder`, `jwt_tool`, `graphw00f` | JS secret extraction, JWT analysis, GraphQL fingerprinting |
+| `evil-winrm` (Ruby gem) | Windows session over WinRM |
+| `Responder` | LLMNR/NBT-NS poisoning |
+
+> ⚠️ **`graphw00f` is NOT installed via `pip install graphw00f`.** That
+> exact name is registered on PyPI as an inert dependency-confusion decoy
+> (its own package description says so) — the real tool only exists as a
+> GitHub repo and is what the Dockerfile actually clones. Worth remembering
+> before ever running `pip install <tool-name>` on a name lifted from
+> documentation without checking PyPI first.
+
+**Mimikatz** is staged only when explicitly requested at build time (see
+below) — it's excluded by default because it's frequently AV/registry-policy
+flagged. `run_mimikatz()` refuses to run if it isn't present in the image.
 
 Wordlists included: `rockyou.txt` (decompressed at build time), Kali's
 standard wordlists (`dirb`, `dirbuster`), and a custom sensitive-paths list
@@ -137,131 +183,40 @@ docker compose build --no-cache
 docker compose up -d   # recreates the container from the new image
 ```
 
+To include Mimikatz (off by default — see [SECURITY.md](./SECURITY.md)):
+
+```bash
+docker compose build --build-arg INCLUDE_OFFENSIVE_BINARIES=true
+docker compose up -d
+```
+
 Rebuilding periodically is recommended — the image doesn't update itself,
 and the Nuclei templates/`apt` packages stay frozen at build time.
 
-## Connecting to Claude Code (local, stdio)
+## Tutorials — connecting an AI client
 
-1. Install the Python dependencies:
-   ```bash
-   uv sync
-   ```
-2. Confirm the container is running (`docker ps --filter name=kali-mcp-box`).
-3. Register the server in `~/.mcp.json`:
-   ```json
-   {
-     "mcpServers": {
-       "kali-security-bridge": {
-         "command": "uv",
-         "args": ["run", "--project", "/absolute/path/to/kali-mcp", "/absolute/path/to/kali-mcp/server.py"]
-       }
-     }
-   }
-   ```
-4. Restart Claude Code. All 25 tools should show up as available.
+Full step-by-step guides live in [`docs/tutorials/`](./docs/tutorials/),
+one per client, so this README stays a readable overview as more
+integrations get added:
 
-In this mode, **there is no authentication** — the OS itself controls who
-can spawn the process, and `KALI_MCP_TRANSPORT` stays at `stdio` (the
-default, nothing to set).
+| Client | Where it runs | Guide |
+|---|---|---|
+| **Claude Code** | Same machine as the server (local `stdio`, no auth needed) | [docs/tutorials/claude-code.md](./docs/tutorials/claude-code.md) |
+| **Claude Desktop** | Any machine (remote, HTTPS + OAuth) | [docs/tutorials/claude-desktop.md](./docs/tutorials/claude-desktop.md) |
+| **ChatGPT** | Any machine (remote, HTTPS + OAuth) | [docs/tutorials/chatgpt.md](./docs/tutorials/chatgpt.md) |
 
-## Connecting to Claude Desktop (remote, via Cloudflare Tunnel)
+Both remote clients share the same one-time infrastructure setup — AWS
+Cognito for OAuth 2.1 + a Cloudflare Tunnel for TLS — documented once in
+[docs/tutorials/remote-https-setup.md](./docs/tutorials/remote-https-setup.md),
+which also explains *why* a real public HTTPS endpoint is a hard
+requirement for these clients (short version: their backends, not your
+browser, perform the OAuth handshake against your server, so a private-only
+address or self-signed cert simply won't work). Local `stdio` (Claude Code)
+needs none of that, since there's no network hop for anything to
+authenticate.
 
-Use this path when Claude Desktop runs on a different machine than the
-server/container. Desktop's native "Connectors" flow requires the server
-to: (a) be on HTTPS with a publicly resolvable domain, and (b) implement
-OAuth with dynamic client registration (RFC 7591) — both come ready-made
-here via FastMCP + AWS Cognito.
-
-### 1. Create the auth infrastructure (one time)
-
-```bash
-# User Pool with self-signup disabled — only you (or anyone added
-# manually) can log in
-aws cognito-idp create-user-pool \
-  --pool-name kali-mcp-bridge \
-  --auto-verified-attributes email \
-  --admin-create-user-config AllowAdminCreateUserOnly=true \
-  --region us-east-1
-
-# Hosted UI (login) domain
-aws cognito-idp create-user-pool-domain \
-  --domain <your-unique-prefix> \
-  --user-pool-id <POOL_ID> \
-  --region us-east-1
-
-# App Client with a secret
-aws cognito-idp create-user-pool-client \
-  --user-pool-id <POOL_ID> \
-  --client-name kali-mcp-bridge-client \
-  --generate-secret \
-  --allowed-o-auth-flows code \
-  --allowed-o-auth-scopes openid email profile \
-  --allowed-o-auth-flows-user-pool-client \
-  --callback-urls "https://<your-cloudflare-domain>/auth/callback" \
-  --supported-identity-providers COGNITO \
-  --region us-east-1
-
-# your user (self-signup is off, so only an admin can create one)
-aws cognito-idp admin-create-user \
-  --user-pool-id <POOL_ID> \
-  --username your-email@example.com \
-  --user-attributes Name=email,Value=your-email@example.com Name=email_verified,Value=true \
-  --message-action SUPPRESS --region us-east-1
-
-aws cognito-idp admin-set-user-password \
-  --user-pool-id <POOL_ID> --username your-email@example.com \
-  --password '<strong-password>' --permanent --region us-east-1
-```
-
-### 2. Start the Cloudflare tunnel
-
-```bash
-# quick test, no account/domain needed (temporary *.trycloudflare.com URL)
-cloudflared tunnel --url http://127.0.0.1:8765
-
-# for production: create a named tunnel with your own domain
-# https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
-```
-
-Note the generated URL (e.g. `https://some-random-words.trycloudflare.com`) —
-it changes every time a Quick Tunnel restarts. For permanent use, use a
-named tunnel with a fixed domain.
-
-### 3. Configure and start the server in HTTP mode
-
-Environment variables (via a local `.env`, or set directly):
-
-```bash
-KALI_MCP_TRANSPORT=http
-KALI_MCP_HOST=127.0.0.1        # bind loopback only — the Cloudflare Tunnel exposes it externally
-KALI_MCP_PORT=8765
-KALI_MCP_PUBLIC_URL=https://<tunnel-url>
-COGNITO_USER_POOL_ID=<POOL_ID>
-COGNITO_REGION=us-east-1
-COGNITO_CLIENT_ID=<CLIENT_ID>
-COGNITO_CLIENT_SECRET=<CLIENT_SECRET>
-```
-
-```bash
-uv run --project . server.py
-```
-
-To keep it running persistently on Linux, use a `systemd --user` service
-with `EnvironmentFile` pointing at the `.env` and `Restart=on-failure` —
-see the commented example in the repository (not checked in, specific to
-each deployment).
-
-### 4. Add the connector in Claude Desktop
-
-In Desktop's settings, under Connectors → **Add custom connector**:
-
-- **Name:** `kali-security-bridge`
-- **URL:** `https://<tunnel-url>/mcp`
-- Leave the advanced settings blank — OAuth registration is automatic
-  (dynamic client registration), no manual Client ID needed
-
-You'll be redirected to Cognito's hosted login screen. Once authenticated,
-all 25 tools become available as usual.
+See [docs/tutorials/README.md](./docs/tutorials/README.md) for the full
+index, including how to add a guide for another client.
 
 ## MCP tools — reference and usage examples
 
@@ -295,6 +250,17 @@ list_findings(target="192.168.1.10", limit=20)
 **`generate_report`** — consolidates all findings for a target into one report
 ```python
 generate_report(target="192.168.1.10", output_format="markdown")
+```
+
+**`request_high_risk_action`** — issues a 10-minute, single-use confirmation
+token required before running a high-risk tool (credential dumping, lateral
+movement, Mimikatz, netexec write/exec modes, opening a pivot tunnel)
+```python
+request_high_risk_action(
+    action="impacket_secretsdump", target="10.0.0.20",
+    justification="Domain Admin creds needed to validate lateral movement per engagement scope §3.2",
+)
+# -> {"token": "...", "expires_at": "..."} — pass the token as confirmation_token= to the gated tool
 ```
 
 ### Reconnaissance
@@ -389,6 +355,19 @@ test_file_upload(upload_url="http://192.168.1.10/upload.php", field_name="file")
 enumerate_mysql_database(host="192.168.1.10", user="root", password="root", database="wordpress")
 ```
 
+**`metasploit_generate_payload`** — msfvenom wrapper; `lhost`/`lport` are your
+own listener, so this doesn't touch the allowlist
+```python
+metasploit_generate_payload(payload="linux/x64/shell_reverse_tcp", lhost="10.10.10.5", lport=4444, format="elf")
+```
+
+**`metasploit_run_module`** — msfconsole wrapper, sets `RHOSTS` from `target` automatically
+```python
+metasploit_run_module(
+    module="auxiliary/scanner/smb/smb_version", options={"RPORT": "445"}, target="192.168.1.10",
+)
+```
+
 ### Web utilities
 
 **`make_http_request`** — custom HTTP request
@@ -412,6 +391,142 @@ check_exposed_files(target_url="http://192.168.1.10")
 screenshot_gowitness(target_url="http://192.168.1.10/admin")
 ```
 
+### Credentials
+
+**`identify_hash`** — identifies the likely hash algorithm(s) via `hashid`
+```python
+identify_hash(hash_value="5f4dcc3b5aa765d61d8327deb882cf99")
+```
+
+**`crack_hash_john`** / **`crack_hash_hashcat`** — offline dictionary attacks;
+cracked plaintext is returned to you and persisted **encrypted** (see
+[SECURITY.md](./SECURITY.md)), never logged in the clear
+```python
+crack_hash_john(hash_value="5f4dcc3b5aa765d61d8327deb882cf99", hash_type="raw-md5")
+crack_hash_hashcat(hash_value="5f4dcc3b5aa765d61d8327deb882cf99", hash_mode=0)
+```
+
+**`search_exploit`** — Exploit-DB lookup via `searchsploit`; also called
+automatically at the end of `scan_nuclei`/`scan_ports_nmap` for any CVE IDs
+found in their output
+```python
+search_exploit(query="wordpress 6.2")
+search_exploit(query="CVE-2023-1234")
+```
+
+### Sessions
+
+**`start_reverse_shell_listener`** — nc listener kept alive in a tmux session
+inside the container
+```python
+start_reverse_shell_listener(target="192.168.1.10", port=4444)
+```
+
+**`session_exec`** — sends a command to an open session, revalidates the
+allowlist on every call
+```python
+session_exec(session_id="a1b2c3d4e5f6", command="whoami")
+```
+
+**`session_status`** / **`session_list`** / **`session_close`**
+```python
+session_status()                                # list every session
+session_list(target="192.168.1.10")
+session_close(session_id="a1b2c3d4e5f6")
+```
+
+### Active Directory
+
+**`enum_smb_shares`** — enum4linux-ng, read-only
+```python
+enum_smb_shares(target="192.168.1.20")
+```
+
+**`enum_ad_netexec`** — netexec (`nxc`); read modes run directly, credential-
+dump/exec modes require `request_high_risk_action` first
+```python
+enum_ad_netexec(target="192.168.1.20", mode="shares")
+enum_ad_netexec(target="192.168.1.20", mode="ntds", confirmation_token="...")
+```
+
+**`bloodhound_collect`** — AD attack-path data collection
+```python
+bloodhound_collect(domain="corp.local", target="192.168.1.20", username="user", password="pass")
+```
+
+**`impacket_secretsdump`** / **`impacket_psexec`** — HIGH RISK, both require
+a `confirmation_token`
+```python
+token = request_high_risk_action(
+    action="impacket_secretsdump", target="192.168.1.20", justification="...",
+)["token"]
+impacket_secretsdump(target="192.168.1.20", username="admin", password="pw", confirmation_token=token)
+```
+
+**`evil_winrm_connect`** — opens a WinRM session via the same tmux-backed
+session mechanism as reverse shells
+```python
+evil_winrm_connect(target="192.168.1.20", username="admin", password="pw")
+```
+
+### Post-exploitation
+
+**`run_linpeas`** / **`run_winpeas`** — privilege-escalation enumeration
+against an open session
+```python
+run_linpeas(session_id="a1b2c3d4e5f6")
+run_winpeas(session_id="a1b2c3d4e5f6")
+```
+
+**`run_mimikatz`** — HIGH RISK, requires a `confirmation_token`; refuses to
+run unless the image was built with `INCLUDE_OFFENSIVE_BINARIES=true`
+```python
+run_mimikatz(session_id="a1b2c3d4e5f6", confirmation_token="...")
+```
+
+### Pivoting
+
+**`start_chisel_tunnel`** / **`start_ligolo_tunnel`** — both require the pivot
+host in the allowlist AND a `confirmation_token`. Opening a tunnel never adds
+anything to the allowlist — any host reached through it still needs its own
+`manage_allowlist()` entry before it can be scanned.
+```python
+start_chisel_tunnel(target="192.168.1.20", local_port=9001, remote_port=8080, confirmation_token="...")
+start_ligolo_tunnel(target="192.168.1.20", confirmation_token="...")
+```
+
+**`pivot_scan_via_proxychains`** — runs any command through the tunnel
+```python
+pivot_scan_via_proxychains(target="10.10.10.5", command="nmap -sV -F 10.10.10.5")
+```
+
+### Forensics / binary analysis
+
+CTF/forensics workflow — not part of the standard web pentest flow.
+
+```python
+analyze_memory_volatility(dump_path="/tmp/dump.raw", plugin="windows.pslist")
+disassemble_binary_r2(binary_path="/tmp/vuln")
+debug_binary_gdb(binary_path="/tmp/vuln", commands="break main; run; info registers")
+extract_binwalk(file_path="/tmp/firmware.bin")
+```
+
+**`analyze_binary_angr`** / **`exploit_pwntools_helper`** — EXPERIMENTAL,
+execute caller-supplied Python inside the container
+```python
+analyze_binary_angr(binary_path="/tmp/vuln", analysis="cfg = proj.analyses.CFGFast(); result = len(cfg.graph.nodes)")
+exploit_pwntools_helper(script="from pwn import *\np = process('/tmp/vuln')\np.sendline(b'A'*40)\nprint(p.recvall())")
+```
+
+### Secrets / JS / API
+
+```python
+scan_secrets_trufflehog(target_url_or_repo="https://github.com/org/repo.git")
+scan_js_secretfinder(target_url="http://app.local/main.js")
+analyze_jwt(token="eyJhbGciOiJIUzI1NiJ9...")
+fingerprint_graphql_graphw00f(target_url="http://app.local/graphql")
+```
+
 ### Orchestration
 
 **`run_full_pentest`** — autonomous end-to-end pipeline (16 phases)
@@ -424,8 +539,9 @@ run_full_pentest(target="example.com", target_url="https://example.com", include
 
 | Path | Contents |
 |---|---|
-| `~/.kali-mcp/findings.db` | SQLite database with all findings per target |
-| `~/.kali-mcp/audit.log` | Audit log of every execution |
+| `~/.kali-mcp/findings.db` | SQLite: `findings`, `allowlist`, `sessions`, `credentials` (hash/plaintext columns Fernet-encrypted), `exploits`, `high_risk_confirmations` |
+| `~/.kali-mcp/secret.key` | Fernet key (0600) that encrypts the `credentials` table — treat `~/.kali-mcp/` as a secret; see [SECURITY.md](./SECURITY.md) |
+| `~/.kali-mcp/audit.log` | Audit log of every execution — sensitive fields (passwords, hashes, tokens) are redacted before logging |
 | `~/.kali-mcp/workspaces/` | Reports generated by `generate_report` |
 | `~/mcps/outputs/kali-mcp/<target>/` | Raw output of each scan + `session.json` (enables resuming via `resume_session`) |
 
