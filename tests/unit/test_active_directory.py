@@ -73,7 +73,7 @@ def test_impacket_secretsdump_requires_confirmation(allowlist_db, fake_container
 def test_impacket_secretsdump_saves_credentials_encrypted(allowlist_db, fake_container, no_rate_limit):
     db.allowlist_add("10.0.0.20")
     fake_container.when(
-        lambda cmd: cmd[0] == "impacket-secretsdump", 0,
+        lambda cmd: cmd[0] == "secretsdump.py", 0,
         "Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n",
     )
     token = security.issue_confirmation_token("impacket_secretsdump", "10.0.0.20", "authorized dump")["token"]
@@ -117,7 +117,7 @@ def test_impacket_psexec_requires_confirmation(allowlist_db, fake_container, no_
 
 def test_impacket_psexec_runs_with_valid_token(allowlist_db, fake_container, no_rate_limit):
     db.allowlist_add("10.0.0.20")
-    fake_container.when(lambda cmd: cmd[0] == "impacket-psexec", 0, "nt authority\\system")
+    fake_container.when(lambda cmd: cmd[0] == "psexec.py", 0, "nt authority\\system")
     token = security.issue_confirmation_token("impacket_psexec", "10.0.0.20", "authorized")["token"]
     result = ad.impacket_psexec(
         target="10.0.0.20", username="admin", password="pw", command="whoami", confirmation_token=token,

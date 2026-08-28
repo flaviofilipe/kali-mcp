@@ -131,7 +131,7 @@ def bloodhound_collect(domain: str, target: str, username: str, password: str) -
 def impacket_secretsdump(target: str, username: str, password: str, confirmation_token: str) -> dict[str, Any]:
     """
     Dumps SAM/LSA secrets and (if run against a DC) NTDS.dit hashes via
-    impacket-secretsdump (Impacket).
+    secretsdump.py (Impacket).
 
     HIGH RISK — extracts credential material from the target. Requires a
     confirmation_token from
@@ -152,7 +152,7 @@ def impacket_secretsdump(target: str, username: str, password: str, confirmation
     if not is_allowed(target):
         return {"success": False, "error": f"Target '{target}' is not in the allowlist. Use manage_allowlist() first."}
 
-    cmd = ["impacket-secretsdump", f"{username}:{password}@{target}"]
+    cmd = ["secretsdump.py", f"{username}:{password}@{target}"]
     result = exec_in_kali(cmd, tool_name="secretsdump", target=target)
     out = result.model_dump()
 
@@ -174,7 +174,7 @@ def impacket_secretsdump(target: str, username: str, password: str, confirmation
 @mcp.tool()
 def impacket_psexec(target: str, username: str, password: str, command: str, confirmation_token: str) -> dict[str, Any]:
     """
-    Executes a command on a Windows host via impacket-psexec (Impacket) — deploys
+    Executes a command on a Windows host via psexec.py (Impacket) — deploys
     a service binary over the SMB admin share (ADMIN$). Classic lateral
     movement technique.
 
@@ -194,7 +194,7 @@ def impacket_psexec(target: str, username: str, password: str, command: str, con
     if not is_allowed(target):
         return {"success": False, "error": f"Target '{target}' is not in the allowlist. Use manage_allowlist() first."}
 
-    cmd = ["impacket-psexec", f"{username}:{password}@{target}", command]
+    cmd = ["psexec.py", f"{username}:{password}@{target}", command]
     audit.info("PSEXEC_RUN | target=%s username=%s", target, username)
     return exec_in_kali(cmd, tool_name="psexec", target=target).model_dump()
 

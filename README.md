@@ -122,7 +122,7 @@ into the image (keeps the final image lean):
 | `nuclei` | Template-based CVE detection (updated at build time) |
 | `dalfox` | XSS detection |
 | `gowitness` | Screenshot evidence capture |
-| `httpx` | Batch HTTP probing |
+| `httpx-projectdiscovery` | Batch HTTP probing — renamed from `httpx`; that name is shadowed by the Python `httpx` HTTP-client library installed in `/opt/pymcp-venv` (see the Dockerfile comment) |
 | `chisel` | Reverse-tunnel pivoting |
 | `trufflehog` | Git/filesystem secret scanning |
 | `ligolo-ng` (proxy + agent) | Full-network pivoting via a routed tun interface |

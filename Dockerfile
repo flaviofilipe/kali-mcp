@@ -145,7 +145,14 @@ COPY --from=go-builder /root/go/bin/katana           /usr/local/bin/katana
 COPY --from=go-builder /root/go/bin/nuclei           /usr/local/bin/nuclei
 COPY --from=go-builder /root/go/bin/dalfox           /usr/local/bin/dalfox
 COPY --from=go-builder /root/go/bin/gowitness        /usr/local/bin/gowitness
-COPY --from=go-builder /root/go/bin/httpx            /usr/local/bin/httpx
+# Renamed on purpose: the Python `httpx` HTTP-client library (a transitive
+# dependency of netexec's certipy-ad, pulled into /opt/pymcp-venv below)
+# ships its own `httpx` console script, and /opt/pymcp-venv/bin is ahead of
+# /usr/local/bin on PATH (needed so plain `python3` resolves to the venv,
+# giving angr/pwntools to any script run that way) — it would silently
+# shadow ProjectDiscovery's httpx otherwise. Found by actually exec-ing into
+# the built image and checking `which httpx`.
+COPY --from=go-builder /root/go/bin/httpx            /usr/local/bin/httpx-projectdiscovery
 COPY --from=go-builder /root/go/bin/chisel           /usr/local/bin/chisel
 COPY --from=go-builder /root/go/bin/trufflehog       /usr/local/bin/trufflehog
 COPY --from=go-builder /root/go/bin/ligolo-ng-proxy  /usr/local/bin/ligolo-ng-proxy
