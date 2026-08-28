@@ -10,10 +10,18 @@ from __future__ import annotations
 
 import ipaddress
 import time
+import uuid
+from datetime import datetime
 
-from core.db import allowlist_entries
+from core.config import CONFIRMATION_TTL_SECONDS
+from core.db import allowlist_entries, get_confirmation, insert_confirmation, mark_confirmation_used
 
 # ── Allowlist ────────────────────────────────────────────────────────────────
+
+
+def normalize_target(target: str) -> str:
+    """Strips URL scheme, path, and port so only the host/IP is compared."""
+    return target.lower().split("://")[-1].split("/")[0].split(":")[0]
 
 
 def is_allowed(target: str) -> bool:
@@ -32,8 +40,7 @@ def is_allowed(target: str) -> bool:
     if not entries:
         return False
 
-    # Normalize: strip URL scheme and port to compare host/IP only
-    normalized = target.lower().split("://")[-1].split("/")[0].split(":")[0]
+    normalized = normalize_target(target)
 
     try:
         target_ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = ipaddress.ip_address(normalized)
@@ -87,3 +94,49 @@ def rate_limit(tool_name: str) -> None:
     if wait > 0:
         time.sleep(wait)
     _last_call_time[tool_name] = time.monotonic()
+
+
+# ── High-risk action confirmation gate ──────────────────────────────────────
+#
+# Some actions (credential dumping, lateral movement, opening a pivot tunnel,
+# Mimikatz, write/exec modes of AD enumeration tools) are gated behind a
+# short-lived, single-use confirmation token: request_high_risk_action()
+# issues one, and the gated tool must pass it back in `confirmation_token`.
+# The token is bound to the exact (action, target) pair it was issued for —
+# it can't be reused for a different target or a different action, and it
+# can't be replayed once consumed.
+
+
+def issue_confirmation_token(action: str, target: str, justification: str) -> dict[str, str]:
+    token      = uuid.uuid4().hex
+    expires_at = insert_confirmation(token, action, normalize_target(target), justification, CONFIRMATION_TTL_SECONDS)
+    return {"token": token, "action": action, "target": target, "expires_at": expires_at}
+
+
+def consume_confirmation(token: str, action: str, target: str) -> tuple[bool, str | None]:
+    """
+    Validates a high-risk confirmation token and marks it used (single-use).
+
+    Returns (True, None) on success, or (False, error_message) otherwise.
+    Never raises — callers should surface error_message as the tool's error.
+    """
+    if not token:
+        return False, (
+            f"This action ('{action}') requires a confirmation_token. "
+            "Call request_high_risk_action(action=..., target=..., justification=...) first."
+        )
+
+    record = get_confirmation(token)
+    if record is None:
+        return False, "Invalid confirmation_token."
+    if record["used_at"]:
+        return False, "This confirmation_token has already been used. Request a new one."
+    if record["action"] != action:
+        return False, f"This confirmation_token was issued for action '{record['action']}', not '{action}'."
+    if record["target"] != normalize_target(target):
+        return False, f"This confirmation_token was issued for target '{record['target']}', not '{target}'."
+    if datetime.fromisoformat(record["expires_at"]) < datetime.now():
+        return False, "This confirmation_token has expired. Request a new one."
+
+    mark_confirmation_used(token)
+    return True, None

@@ -13,6 +13,7 @@ from typing import Any
 from core.config import STEALTH_UA, WORKSPACE_DIR, mcp
 from core.db import allowlist_add, allowlist_list, allowlist_remove, query_findings, query_findings_full, target_output_dir
 from core.docker_exec import exec_in_kali
+from core.security import issue_confirmation_token
 from tools.web import scan_xmlrpc_wordpress
 
 # ── Allowlist ────────────────────────────────────────────────────────────────
@@ -63,6 +64,42 @@ def manage_allowlist(
         }
 
     return {"success": False, "error": f"invalid action: '{action}'. Use 'add', 'remove', or 'list'"}
+
+
+@mcp.tool()
+def request_high_risk_action(action: str, target: str, justification: str) -> dict[str, Any]:
+    """
+    Issues a short-lived (10 minute), single-use confirmation token required
+    before running a high-risk action: credential dumping (impacket_secretsdump),
+    lateral movement (impacket_psexec), Mimikatz, netexec in a write/exec mode,
+    or opening a pivot tunnel (start_chisel_tunnel, start_ligolo_tunnel).
+
+    The token is bound to the exact (action, target) pair passed here — it
+    cannot be reused for a different action or target, and it is consumed on
+    first use. The justification is written to the audit log.
+
+    Args:
+        action:        Name of the gated tool/action you're about to run.
+                       E.g.: "impacket_secretsdump", "run_mimikatz"
+        target:        Target the action will run against.
+        justification: Why this is authorized. E.g.: "Domain Admin creds needed
+                       to validate lateral movement per engagement scope §3.2"
+    """
+    from core.audit import audit
+
+    if not action or not target or not justification:
+        return {"success": False, "error": "action, target, and justification are all required."}
+
+    token_info = issue_confirmation_token(action, target, justification)
+    audit.info(
+        "HIGH_RISK_CONFIRMATION_ISSUED | action=%s target=%s justification=%s expires_at=%s",
+        action, target, justification, token_info["expires_at"],
+    )
+    return {
+        "success": True,
+        **token_info,
+        "note": "Pass this token as confirmation_token= to the gated tool within 10 minutes. Single use.",
+    }
 
 
 @mcp.tool()
