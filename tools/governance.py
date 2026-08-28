@@ -14,6 +14,7 @@ from core.config import STEALTH_UA, WORKSPACE_DIR, mcp
 from core.db import allowlist_add, allowlist_list, allowlist_remove, query_findings, query_findings_full, target_output_dir
 from core.docker_exec import exec_in_kali
 from core.security import issue_confirmation_token
+from reports.generator import build_report, rows_to_findings, safe_filename
 from tools.web import scan_xmlrpc_wordpress
 
 # ── Allowlist ────────────────────────────────────────────────────────────────
@@ -204,75 +205,16 @@ def generate_report(target: str, output_format: str = "markdown") -> dict[str, A
     if not rows:
         return {"success": False, "error": f"No findings found for '{target}'"}
 
-    findings = [
-        {
-            "tool": r[0], "target": r[1], "timestamp": r[2],
-            "exit_code": r[3], "success": bool(r[4]), "output": r[5], "error": r[6],
-        }
-        for r in rows
-    ]
+    content, ext = build_report(target, rows, output_format)
 
-    now         = datetime.now()
-    ts          = now.strftime("%Y%m%d_%H%M%S")
-    safe_target = target.replace("/", "_").replace(":", "_").replace(".", "_")
-    tools_used  = sorted({f["tool"] for f in findings})
-
-    if output_format == "json":
-        content = json.dumps(
-            {"target": target, "generated": now.isoformat(), "findings": findings},
-            indent=2, ensure_ascii=False,
-        )
-        ext = "json"
-    else:
-        total   = len(findings)
-        success = sum(1 for f in findings if f["success"])
-        lines   = [
-            f"# Security Report — {target} — {now.strftime('%Y-%m-%d %H:%M')}",
-            "",
-            "## Scope Tested",
-            f"- **Target:** `{target}`",
-            f"- **Tools executed:** {', '.join(tools_used)}",
-            f"- **Total scans:** {total}  |  **Successful:** {success}  |  **Failed:** {total - success}",
-            f"- **Generated at:** {now.isoformat()}",
-            "",
-            "---",
-            "",
-            "## Findings by Tool",
-            "",
-        ]
-        for f in findings:
-            status = "OK" if f["success"] else "FAILED"
-            lines += [
-                f"### [{status}] {f['tool'].upper()} — {f['timestamp']}",
-                f"**Target:** `{f['target']}`  |  **Exit code:** `{f['exit_code']}`",
-                "",
-            ]
-            if f["error"]:
-                lines += [f"> **Error:** {f['error']}", ""]
-            if f["output"]:
-                preview = f["output"][:5000]
-                truncated = " *(truncated — see the full file)*" if len(f["output"]) > 5000 else ""
-                lines += [f"```\n{preview}\n```{truncated}", ""]
-            lines += ["---", ""]
-
-        lines += [
-            "## Execution Summary",
-            "| Tool | Status | Timestamp |",
-            "|---|---|---|",
-        ]
-        for f in findings:
-            lines.append(f"| {f['tool']} | {'✓' if f['success'] else '✗'} | {f['timestamp']} |")
-
-        content = "\n".join(lines)
-        ext = "md"
-
-    output_path = WORKSPACE_DIR / f"{safe_target}_{ts}.{ext}"
+    ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = WORKSPACE_DIR / f"{safe_filename(target)}_{ts}.{ext}"
     output_path.write_text(content, encoding="utf-8")
 
     return {
         "success":        True,
         "target":         target,
-        "findings_count": len(findings),
+        "findings_count": len(rows_to_findings(rows)),
         "output_file":    str(output_path),
         "output_format":  output_format,
         "preview":        content[:3000],
