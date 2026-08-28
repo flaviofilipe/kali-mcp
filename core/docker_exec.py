@@ -28,11 +28,11 @@ def get_container() -> docker.models.containers.Container:
 
     try:
         container = client.containers.get(CONTAINER_NAME)
-    except NotFound:
+    except NotFound as exc:
         raise RuntimeError(
             f"Container '{CONTAINER_NAME}' not found. "
             "Build and start it: cd ~/mcps/kali-mcp && docker compose up -d --build"
-        )
+        ) from exc
 
     if container.status != "running":
         raise RuntimeError(

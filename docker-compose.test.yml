@@ -1,0 +1,31 @@
+services:
+  kali-mcp-box-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kali-mcp-box:test
+    container_name: kali-mcp-box-test
+    tty: true
+    networks:
+      - pentest-lab-test
+
+  # Real vulnerable web target for the recon/web/exploitation/credentials
+  # integration tests — never scan the internet, only this.
+  juice-shop-test:
+    image: bkimminich/juice-shop
+    container_name: juice-shop-test
+    networks:
+      - pentest-lab-test
+
+  # Minimal SMB target for the AD-enumeration integration test
+  # (enum_smb_shares / enum_ad_netexec read modes).
+  samba-test:
+    image: dperson/samba
+    container_name: samba-test
+    command: '-u "testuser;testpass" -s "public;/share;yes;no;yes;testuser"'
+    networks:
+      - pentest-lab-test
+
+networks:
+  pentest-lab-test:
+    name: pentest-lab-test

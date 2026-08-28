@@ -15,4 +15,19 @@ dependencies = [
 dev = [
     "pytest>=8.3.0",
     "pytest-mock>=3.14.0",
+    "ruff>=0.8.0",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# Keep this to real bugs, not style — the existing codebase's formatting
+# (aligned '=' in dicts/kwargs, wide argument spacing) is intentional and
+# ruff format would fight it. select is deliberately narrow.
+select = ["E9", "F", "B"]
+ignore = ["F401"]  # tools/*.py import each other's functions for re-export/reuse patterns
+
+[tool.ruff.lint.per-file-ignores]
+"server.py" = ["F401", "E402"]  # tool modules imported only for their @mcp.tool() registration side effect

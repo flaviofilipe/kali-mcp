@@ -1,0 +1,72 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Fast job — no Docker, runs on every PR. tests/unit and tests/security
+  # mock docker.from_env()/container.exec_run() entirely; they never touch
+  # a real Docker daemon or the network.
+  unit-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Unit tests
+        run: uv run pytest tests/unit -v
+
+      - name: Security tests
+        run: uv run pytest tests/security -v
+
+  # Slow job — builds the full kali-mcp-box image (Metasploit, angr,
+  # Volatility3, ...) and brings up the ephemeral test lab
+  # (docker-compose.test.yml). Only on push to main, or when a PR carries
+  # the "run-integration" label, since a full build takes real time.
+  integration:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'run-integration')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Build the test image and bring up the lab
+        run: docker compose -f docker-compose.test.yml up -d --build
+
+      - name: Wait for the test container to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Status}}' kali-mcp-box-test 2>/dev/null || echo "missing")
+            [ "$status" = "running" ] && break
+            sleep 5
+          done
+          docker ps
+
+      - name: Integration tests
+        run: uv run pytest tests/integration -v
+
+      - name: Tear down the lab
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v

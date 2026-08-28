@@ -145,11 +145,11 @@ def session_status(session_id: str = "") -> dict[str, Any]:
         if record is None:
             return {"success": False, "error": f"No session with id '{session_id}'."}
         keys = ["id", "target", "session_type", "host", "port", "status", "opened_at", "closed_at"]
-        return {"success": True, **dict(zip(keys, record))}
+        return {"success": True, **dict(zip(keys, record, strict=True))}
 
     rows = db_list_sessions()
     keys = ["id", "target", "session_type", "host", "port", "status", "opened_at", "closed_at"]
-    return {"success": True, "total": len(rows), "sessions": [dict(zip(keys, r)) for r in rows]}
+    return {"success": True, "total": len(rows), "sessions": [dict(zip(keys, r, strict=True)) for r in rows]}
 
 
 @mcp.tool()
@@ -185,4 +185,4 @@ def session_list(target: str = "") -> dict[str, Any]:
     """
     rows = db_list_sessions(target)
     keys = ["id", "target", "session_type", "host", "port", "status", "opened_at", "closed_at"]
-    return {"success": True, "total": len(rows), "sessions": [dict(zip(keys, r)) for r in rows]}
+    return {"success": True, "total": len(rows), "sessions": [dict(zip(keys, r, strict=True)) for r in rows]}

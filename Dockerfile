@@ -175,12 +175,12 @@ RUN if [ "$INCLUDE_OFFENSIVE_BINARIES" = "true" ]; then \
 # callable, no venv activation needed.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV PATH="/opt/pymcp-venv/bin:${PATH}"
-RUN uv venv /opt/pymcp-venv --python 3.12 && \
-    uv pip install --python /opt/pymcp-venv/bin/python \
-        netexec \
+RUN uv venv /opt/pymcp-venv --python 3.12
+
+# Packages actually published on PyPI under these names.
+RUN uv pip install --python /opt/pymcp-venv/bin/python \
         impacket \
         bloodhound \
-        enum4linux-ng \
         volatility3 \
         angr \
         pwntools \
@@ -190,18 +190,37 @@ RUN uv venv /opt/pymcp-venv --python 3.12 && \
         termcolor \
         cprint
 
-# Script-only tools with no PyPI package — git clone at a pinned commit and
-# invoke via an absolute path / thin wrapper.
-RUN git clone --depth 1 https://github.com/m4ll0k/SecretFinder.git /opt/secretfinder && \
+# netexec and enum4linux-ng are NOT on PyPI under their tool names — install
+# straight from a pinned tag instead. (netexec's pyproject.toml registers
+# both `netexec` and `nxc` console scripts; enum4linux-ng's setup.py
+# installs a plain `enum4linux-ng` script.)
+ARG NETEXEC_VERSION=v1.5.1
+ARG ENUM4LINUX_NG_VERSION=v1.3.10
+RUN uv pip install --python /opt/pymcp-venv/bin/python \
+        "netexec @ git+https://github.com/Pennyw0rth/NetExec.git@${NETEXEC_VERSION}" \
+        "enum4linux-ng @ git+https://github.com/cddmp/enum4linux-ng.git@${ENUM4LINUX_NG_VERSION}"
+
+# Script-only tools with no usable PyPI package — git clone at a pinned tag
+# and invoke via an absolute path / thin wrapper.
+# No tags in this repo — pin an exact commit SHA instead (fetched shallowly;
+# GitHub supports shallow-fetching an arbitrary commit for public repos).
+ARG SECRETFINDER_COMMIT=d06119dedd9c1505137d1ec4792d5d5b65c7425d
+RUN git init -q /opt/secretfinder && \
+    git -C /opt/secretfinder fetch --depth 1 https://github.com/m4ll0k/SecretFinder.git "${SECRETFINDER_COMMIT}" && \
+    git -C /opt/secretfinder checkout -q FETCH_HEAD && \
     uv pip install --python /opt/pymcp-venv/bin/python -r /opt/secretfinder/requirements.txt
 
-RUN git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool && \
+ARG JWT_TOOL_VERSION=2.2.7
+RUN git clone --depth 1 --branch "v${JWT_TOOL_VERSION}" https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool && \
     uv pip install --python /opt/pymcp-venv/bin/python -r /opt/jwt_tool/requirements.txt && \
     chmod +x /opt/jwt_tool/jwt_tool.py
 
-# graphw00f (GraphQL engine fingerprinting) — not published on PyPI, clone
-# and wrap.
-RUN git clone --depth 1 https://github.com/dolevf/graphw00f.git /opt/graphw00f && \
+# graphw00f (GraphQL engine fingerprinting) — IMPORTANT: "graphw00f" IS
+# registered on PyPI, but as an inert dependency-confusion decoy placeholder
+# (its own long_description says so explicitly) — never `pip install
+# graphw00f`. The real tool only exists as a GitHub repo; clone and wrap it.
+ARG GRAPHW00F_VERSION=1.2.1
+RUN git clone --depth 1 --branch "${GRAPHW00F_VERSION}" https://github.com/dolevf/graphw00f.git /opt/graphw00f && \
     uv pip install --python /opt/pymcp-venv/bin/python -r /opt/graphw00f/requirements.txt && \
     printf '#!/bin/sh\nexec python3 /opt/graphw00f/main.py "$@"\n' > /usr/local/bin/graphw00f && \
     chmod +x /usr/local/bin/graphw00f
