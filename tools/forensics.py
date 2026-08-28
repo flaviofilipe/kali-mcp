@@ -49,6 +49,27 @@ def disassemble_binary_r2(binary_path: str, command: str = "aaa; afl") -> dict[s
 
 
 @mcp.tool()
+def debug_binary_gdb(binary_path: str, commands: str = "info functions") -> dict[str, Any]:
+    """
+    Runs GDB in batch (non-interactive) mode against a binary. CTF /
+    reverse-engineering workflow.
+
+    Args:
+        binary_path: Path to the binary inside the container.
+        commands:    Semicolon-separated GDB commands, each run with -ex.
+                     Default: "info functions". Other examples:
+                     "break main; run; info registers", "disassemble main"
+    """
+    gdb_cmd = ["gdb", "-q", "-batch"]
+    for part in commands.split(";"):
+        part = part.strip()
+        if part:
+            gdb_cmd += ["-ex", part]
+    gdb_cmd.append(binary_path)
+    return exec_in_kali(gdb_cmd, tool_name="gdb", target=binary_path, skip_allowlist=True).model_dump()
+
+
+@mcp.tool()
 def extract_binwalk(file_path: str) -> dict[str, Any]:
     """
     Extracts embedded files and filesystems from a firmware image or binary

@@ -108,8 +108,9 @@ RATE_LIMITS: dict[str, float] = {
     "winpeas":   5.0,
     "mimikatz": 10.0,
     # Pivoting
-    "chisel": 5.0,
-    "ligolo": 5.0,
+    "chisel":       5.0,
+    "ligolo":       5.0,
+    "proxychains4": 3.0,
     # Forensics / binary
     "volatility3": 5.0,
     "radare2":     3.0,

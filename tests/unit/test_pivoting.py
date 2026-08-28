@@ -70,6 +70,21 @@ def test_host_reached_via_tunnel_still_requires_its_own_allowlist_entry(allowlis
     assert "allowlist" in result["error"].lower()
 
 
+def test_pivot_scan_via_proxychains_blocked_when_not_allowlisted(allowlist_db, fake_container, no_rate_limit):
+    result = pivoting.pivot_scan_via_proxychains(target="10.10.10.5", command="nmap -sV -F 10.10.10.5")
+    assert result["success"] is False
+    assert fake_container.calls == []
+
+
+def test_pivot_scan_via_proxychains_runs_when_allowlisted(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.10.10.5")
+    fake_container.when(lambda cmd: cmd[0] == "proxychains4", 0, "22/tcp open ssh\n")
+    result = pivoting.pivot_scan_via_proxychains(target="10.10.10.5", command="nmap -sV -F 10.10.10.5")
+    assert result["success"] is True
+    assert fake_container.calls[0][:2] == ["proxychains4", "-q"]
+    assert "nmap" in fake_container.calls[0]
+
+
 def test_tunnel_recorded_as_session(allowlist_db, fake_container, no_rate_limit):
     db.allowlist_add("10.0.0.40")
     token = security.issue_confirmation_token("start_chisel_tunnel", "10.0.0.40", "authorized pivot")["token"]

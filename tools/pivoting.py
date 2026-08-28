@@ -14,13 +14,14 @@ internal network is a meaningfully bigger blast radius than a single scan.
 
 from __future__ import annotations
 
+import shlex
 import uuid
 from typing import Any
 
 from core.audit import audit
 from core.config import LIGOLO_PROXY_PORT, mcp
 from core.db import create_session
-from core.docker_exec import get_container
+from core.docker_exec import exec_in_kali, get_container
 from core.security import consume_confirmation, is_allowed
 
 
@@ -144,3 +145,26 @@ def start_ligolo_tunnel(target: str, confirmation_token: str) -> dict[str, Any]:
             "through the tunnel still need their own allowlist entry."
         ),
     }
+
+
+@mcp.tool()
+def pivot_scan_via_proxychains(target: str, command: str) -> dict[str, Any]:
+    """
+    Runs an arbitrary command through proxychains4 (via the container's
+    /etc/proxychains4.conf — point it at chisel's SOCKS reverse mode or
+    ligolo-ng's tun interface) to reach a host behind a pivot tunnel.
+
+    The allowlist still applies here exactly like any other tool: `target`
+    must be authorized first. A tunnel never bypasses this check.
+
+    Args:
+        target:  The internal host this command will reach through the
+                tunnel. Must be in the allowlist.
+        command: Full command line to run through the tunnel.
+                E.g.: "nmap -sV -F 10.10.10.5"
+    """
+    if not is_allowed(target):
+        return {"success": False, "error": f"Target '{target}' is not in the allowlist. Use manage_allowlist() first."}
+
+    cmd = ["proxychains4", "-q"] + shlex.split(command)
+    return exec_in_kali(cmd, tool_name="proxychains4", target=target).model_dump()

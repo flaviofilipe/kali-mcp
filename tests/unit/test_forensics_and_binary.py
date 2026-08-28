@@ -20,6 +20,18 @@ def test_disassemble_binary_r2_default_command(allowlist_db, fake_container, no_
     assert fake_container.calls[0] == ["r2", "-q", "-c", "aaa; afl", "/tmp/vuln"]
 
 
+def test_debug_binary_gdb_splits_commands_on_semicolon(allowlist_db, fake_container, no_rate_limit):
+    fake_container.when(lambda cmd: cmd[0] == "gdb", 0, "0x08048456 <main>\n")
+    result = forensics.debug_binary_gdb(binary_path="/tmp/vuln", commands="break main; run; info registers")
+    assert result["success"] is True
+    cmd = fake_container.calls[0]
+    assert cmd[0] == "gdb"
+    assert cmd.count("-ex") == 3
+    assert "break main" in cmd
+    assert "info registers" in cmd
+    assert cmd[-1] == "/tmp/vuln"
+
+
 def test_extract_binwalk_uses_extract_flag(allowlist_db, fake_container, no_rate_limit):
     fake_container.when(lambda cmd: cmd[0] == "binwalk", 0, "DECIMAL  HEX  DESCRIPTION\n")
     result = forensics.extract_binwalk(file_path="/tmp/firmware.bin")
