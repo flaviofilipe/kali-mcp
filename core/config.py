@@ -92,3 +92,6 @@ MIMIKATZ_PATH = f"{HTTP_SERVE_DIR}/mimikatz.exe"
 
 # ── High-risk confirmation gate ──────────────────────────────────────────────
 CONFIRMATION_TTL_SECONDS = 10 * 60  # 10 minutes
+
+# ── Pivoting ──────────────────────────────────────────────────────────────────
+LIGOLO_PROXY_PORT = 11601
