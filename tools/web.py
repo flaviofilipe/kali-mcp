@@ -10,6 +10,7 @@ from typing import Any
 
 from core.config import STEALTH_UA, mcp
 from core.docker_exec import exec_in_kali
+from tools.credentials import suggest_exploits_for_output
 
 
 @mcp.tool()
@@ -161,7 +162,10 @@ def scan_nuclei(
     ]
     if tags:
         cmd += ["-tags", tags]
-    return exec_in_kali(cmd, tool_name="nuclei", target=target_url).model_dump()
+    result = exec_in_kali(cmd, tool_name="nuclei", target=target_url)
+    out = result.model_dump()
+    out["suggested_exploits"] = suggest_exploits_for_output(target_url, "nuclei", result.output)
+    return out
 
 
 @mcp.tool()

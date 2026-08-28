@@ -44,6 +44,7 @@ from core.config import mcp
 # tools.web (run_full_pentest calls scan_xmlrpc_wordpress), so web is
 # imported first for clarity.
 
+import tools.credentials    # noqa: F401,E402
 import tools.recon          # noqa: F401,E402
 import tools.web            # noqa: F401,E402
 import tools.exploitation   # noqa: F401,E402

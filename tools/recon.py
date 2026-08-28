@@ -7,6 +7,7 @@ from typing import Any
 
 from core.config import mcp
 from core.docker_exec import exec_in_kali
+from tools.credentials import suggest_exploits_for_output
 
 
 @mcp.tool()
@@ -35,7 +36,10 @@ def scan_ports_nmap(
     if stealth and "--scan-delay" not in flags:
         nmap_flags += ["--scan-delay", "1s", "-T2"]
     cmd = ["nmap"] + nmap_flags + [target]
-    return exec_in_kali(cmd, tool_name="nmap", target=target).model_dump()
+    result = exec_in_kali(cmd, tool_name="nmap", target=target)
+    out = result.model_dump()
+    out["suggested_exploits"] = suggest_exploits_for_output(target, "nmap", result.output)
+    return out
 
 
 @mcp.tool()

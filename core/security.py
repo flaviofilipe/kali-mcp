@@ -83,6 +83,45 @@ RATE_LIMITS: dict[str, float] = {
     "curl":      1.0,
     "ffuf":      3.0,
     "mysql":     2.0,
+    # Credentials — hash cracking runs offline against a value already in
+    # hand, not against a live target, so it can be more permissive than
+    # network brute forcing (hydra above).
+    "hashid":       1.0,
+    "john":         3.0,
+    "hashcat":      3.0,
+    "searchsploit": 2.0,
+    # Sessions
+    "reverse-shell-listener": 3.0,
+    "session-exec":           1.0,
+    "evil-winrm":             3.0,
+    # Exploitation — Metasploit
+    "msfvenom":   5.0,
+    "msfconsole": 10.0,
+    # Active Directory
+    "enum4linux-ng": 5.0,
+    "netexec":       5.0,
+    "bloodhound-python": 10.0,
+    "secretsdump":   10.0,
+    "psexec":        10.0,
+    # Post-exploitation
+    "linpeas":   5.0,
+    "winpeas":   5.0,
+    "mimikatz": 10.0,
+    # Pivoting
+    "chisel": 5.0,
+    "ligolo": 5.0,
+    # Forensics / binary
+    "volatility3": 5.0,
+    "radare2":     3.0,
+    "gdb":         3.0,
+    "binwalk":     3.0,
+    "angr":        5.0,
+    "pwntools":    3.0,
+    # Secrets / JS / API
+    "trufflehog":  3.0,
+    "secretfinder": 3.0,
+    "jwt_tool":     1.0,
+    "graphw00f":    3.0,
 }
 _last_call_time: dict[str, float] = {}
 
