@@ -50,6 +50,7 @@ import tools.web            # noqa: F401,E402
 import tools.exploitation   # noqa: F401,E402
 import tools.sessions       # noqa: F401,E402
 import tools.active_directory  # noqa: F401,E402
+import tools.post_exploitation  # noqa: F401,E402
 import tools.governance     # noqa: F401,E402
 
 # ── Entrypoint ───────────────────────────────────────────────────────────────

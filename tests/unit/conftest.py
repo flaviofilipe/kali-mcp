@@ -48,6 +48,12 @@ class FakeContainer:
         self.status = "running"
         self.calls: list[list[str]] = []
         self.responses: list[tuple[Callable[[list[str]], bool], tuple[int, bytes]]] = []
+        # Mirrors docker SDK's Container.attrs — enough of it for code that
+        # reads NetworkSettings.Networks.*.IPAddress (post-exploitation
+        # payload delivery).
+        self.attrs: dict = {
+            "NetworkSettings": {"Networks": {"pentest-lab": {"IPAddress": "172.20.0.5"}}}
+        }
 
     def when(self, predicate: Callable[[list[str]], bool], exit_code: int, output: str) -> None:
         self.responses.append((predicate, (exit_code, output.encode("utf-8"))))

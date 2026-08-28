@@ -77,11 +77,18 @@ STEALTH_HEADERS = [
     "-H", "Accept-Encoding: gzip, deflate",
 ]
 
-# ── Build-time feature flags ─────────────────────────────────────────────────
+# ── Post-exploitation payload delivery ───────────────────────────────────────
+# LinPEAS/WinPEAS (and, if staged, Mimikatz) are served to a compromised
+# session over plain HTTP from this directory inside the container, started
+# on demand by tools.post_exploitation. Kept as one shared directory so a
+# single http.server process can serve all of them.
+HTTP_SERVE_DIR  = "/opt/mcp-payloads"
+HTTP_SERVE_PORT = 8421
+
 # Mirrors the Dockerfile's --build-arg INCLUDE_OFFENSIVE_BINARIES=true. When
 # the image was built without it, Mimikatz is not staged inside the
 # container and run_mimikatz() must refuse to run.
-MIMIKATZ_PATH = "/opt/offensive-bin/mimikatz.exe"
+MIMIKATZ_PATH = f"{HTTP_SERVE_DIR}/mimikatz.exe"
 
 # ── High-risk confirmation gate ──────────────────────────────────────────────
 CONFIRMATION_TTL_SECONDS = 10 * 60  # 10 minutes
