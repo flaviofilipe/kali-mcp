@@ -247,7 +247,10 @@ COPY config/sensitive-paths.txt /usr/share/wordlists/sensitive-paths.txt
 RUN nuclei -update-templates -silent || true
 
 # ── searchsploit database ────────────────────────────────────────────────────
-RUN searchsploit -u || true
+# NOT `searchsploit -u`: that also pulls in the exploitdb-papers package
+# (~2.5GB of unrelated whitepaper PDFs search_exploit() never reads) even
+# when the actual exploit database (what search_exploit() queries) is
+# already current from the exploitdb apt package installed above.
 
 # ── Output directories ───────────────────────────────────────────────────────
 RUN mkdir -p /tmp/sqlmap-results /tmp/gowitness /tmp/nuclei-results
