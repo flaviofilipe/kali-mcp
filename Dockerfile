@@ -73,6 +73,8 @@ RUN apt-get update -qq && \
         # recon
         nmap \
         smbclient \
+        # enum4linux-ng shells out to nmblookup/net, not provided by smbclient alone
+        samba-common-bin \
         # web analysis
         nikto \
         testssl.sh \
