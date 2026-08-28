@@ -207,11 +207,17 @@ RUN uv pip install --python /opt/pymcp-venv/bin/python \
 # straight from a pinned tag instead. (netexec's pyproject.toml registers
 # both `netexec` and `nxc` console scripts; enum4linux-ng's setup.py
 # installs a plain `enum4linux-ng` script.)
+# netexec v1.5.1 declares only `dploot>=3.1.0` (no upper bound), but its smb
+# protocol module imports dploot.lib.smb.DPLootSMBConnection, a path dploot
+# 4.0.0 removed/reorganized (found by running netexec against a real SMB
+# target — `nxc smb ... --shares` raised ModuleNotFoundError). Pin dploot
+# to the last 3.x release explicitly so uv's resolver doesn't pick 4.0.0.
 ARG NETEXEC_VERSION=v1.5.1
 ARG ENUM4LINUX_NG_VERSION=v1.3.10
 RUN uv pip install --python /opt/pymcp-venv/bin/python \
         "netexec @ git+https://github.com/Pennyw0rth/NetExec.git@${NETEXEC_VERSION}" \
-        "enum4linux-ng @ git+https://github.com/cddmp/enum4linux-ng.git@${ENUM4LINUX_NG_VERSION}"
+        "enum4linux-ng @ git+https://github.com/cddmp/enum4linux-ng.git@${ENUM4LINUX_NG_VERSION}" \
+        "dploot==3.2.2"
 
 # Script-only tools with no usable PyPI package — git clone at a pinned tag
 # and invoke via an absolute path / thin wrapper.
