@@ -223,9 +223,10 @@ RUN git clone --depth 1 --branch "v${JWT_TOOL_VERSION}" https://github.com/ticar
 # registered on PyPI, but as an inert dependency-confusion decoy placeholder
 # (its own long_description says so explicitly) — never `pip install
 # graphw00f`. The real tool only exists as a GitHub repo; clone and wrap it.
+# No requirements.txt in this repo — its only third-party dependency is
+# `requests`, already installed above.
 ARG GRAPHW00F_VERSION=1.2.1
 RUN git clone --depth 1 --branch "${GRAPHW00F_VERSION}" https://github.com/dolevf/graphw00f.git /opt/graphw00f && \
-    uv pip install --python /opt/pymcp-venv/bin/python -r /opt/graphw00f/requirements.txt && \
     printf '#!/bin/sh\nexec python3 /opt/graphw00f/main.py "$@"\n' > /usr/local/bin/graphw00f && \
     chmod +x /usr/local/bin/graphw00f
 
