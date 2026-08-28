@@ -1,22 +1,29 @@
 # kali-security-bridge
 
+[![test](https://github.com/flaviofilipe/kali-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/flaviofilipe/kali-mcp/actions/workflows/test.yml)
+
 An [MCP](https://modelcontextprotocol.io) server that gives Claude (or any
 MCP-compatible AI agent) a complete offensive security testing toolkit —
-reconnaissance, enumeration, web analysis, and exploitation — running
+reconnaissance, enumeration, web analysis, exploitation, credential access,
+Active Directory lateral movement, post-exploitation, and pivoting — running
 inside an isolated Kali Linux container, with a mandatory target allowlist,
-rate limiting, and a full audit log.
+rate limiting, a confirmation gate on high-risk actions, and a full audit log.
 
 In short: **AI-driven penetration testing automation**, safely sandboxed in
-Docker, exposed as MCP tools so Claude Code or Claude Desktop can run a full
-web app / WordPress / network pentest — Nmap port scanning, Nikto and Nuclei
-vulnerability scanning, Gobuster/ffuf directory brute forcing, SQLMap SQL
-injection testing, Hydra credential brute forcing, WPScan WordPress
-auditing, and automated Markdown/JSON reporting — all from a chat
+Docker, exposed as 59 MCP tools so Claude Code or Claude Desktop can run a
+full web app / WordPress / network / Active Directory pentest — Nmap port
+scanning, Nikto and Nuclei vulnerability scanning, Gobuster/ffuf directory
+brute forcing, SQLMap SQL injection testing, Hydra credential brute forcing,
+WPScan WordPress auditing, John/Hashcat hash cracking, Metasploit, reverse
+shell and evil-winrm session management, Impacket/BloodHound/NetExec Active
+Directory tooling, LinPEAS/WinPEAS privilege-escalation enumeration, Chisel/
+ligolo-ng pivoting, and automated Markdown/JSON reporting — all from a chat
 conversation.
 
 > ⚠️ Read [`SECURITY.md`](./SECURITY.md) before using this. This project runs
-> real offensive tools (`hydra`, `sqlmap`, malicious file upload as a PoC,
-> etc.) — only ever against targets you have explicit authorization to test.
+> real offensive tools (`hydra`, `sqlmap`, `metasploit`, credential dumping,
+> lateral movement, etc.) — only ever against targets you have explicit
+> authorization to test.
 
 ## Table of contents
 
@@ -87,6 +94,7 @@ Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 | Tool | Category |
 |---|---|
 | `nmap` | Port/service scanning |
+| `smbclient` | SMB browsing |
 | `nikto` | Web vulnerability scanning |
 | `testssl.sh` | SSL/TLS analysis |
 | `wpscan` | WordPress security auditing |
@@ -94,11 +102,18 @@ Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 | `hydra` | Credential brute forcing |
 | `gobuster`, `dirb` | Directory enumeration |
 | `ffuf` | Fast fuzzing |
+| `metasploit-framework` | Exploitation (msfvenom, msfconsole) |
+| `john`, `hashcat`, `hashid` | Hash identification / cracking |
+| `exploitdb` (`searchsploit`) | Public-exploit lookup |
+| `proxychains4` | Routing tool traffic through a pivot tunnel |
+| `radare2`, `gdb`, `binwalk`, `exiftool`, `steghide` | Reverse engineering / forensics |
 | `mariadb-client` | Direct MySQL/MariaDB enumeration |
+| `tmux`, `netcat-traditional` | Session management (keeps a reverse shell alive across MCP calls) |
 | `curl`, `wget`, `chromium` | HTTP requests / rendering |
 
-Compiled from source in a separate Go builder stage (`golang:1.24-bookworm`),
-with only the final binaries copied into the image (keeps the final image lean):
+Compiled from source or fetched as a pinned prebuilt release in a separate Go
+builder stage (`golang:1.24-bookworm`), with only the final binaries copied
+into the image (keeps the final image lean):
 
 | Tool | Category |
 |---|---|
@@ -108,6 +123,37 @@ with only the final binaries copied into the image (keeps the final image lean):
 | `dalfox` | XSS detection |
 | `gowitness` | Screenshot evidence capture |
 | `httpx` | Batch HTTP probing |
+| `chisel` | Reverse-tunnel pivoting |
+| `trufflehog` | Git/filesystem secret scanning |
+| `ligolo-ng` (proxy + agent) | Full-network pivoting via a routed tun interface |
+
+Installed via a dedicated `uv`-managed Python venv (`/opt/pymcp-venv`, kept
+off Kali's system Python), or git-cloned at a pinned tag/commit when there's
+no usable PyPI package:
+
+| Tool | Category |
+|---|---|
+| `netexec` (`nxc`) | AD/SMB enumeration and lateral movement (successor to CrackMapExec) |
+| `impacket` (`impacket-secretsdump`, `impacket-psexec`, ...) | AD credential dumping and lateral movement |
+| `bloodhound-python` | Active Directory attack-path collection |
+| `enum4linux-ng` | SMB/AD enumeration |
+| `volatility3` (`vol`) | Memory forensics |
+| `angr` | Binary symbolic execution |
+| `pwntools` | CTF/binary-exploitation scripting |
+| `SecretFinder`, `jwt_tool`, `graphw00f` | JS secret extraction, JWT analysis, GraphQL fingerprinting |
+| `evil-winrm` (Ruby gem) | Windows session over WinRM |
+| `Responder` | LLMNR/NBT-NS poisoning |
+
+> ⚠️ **`graphw00f` is NOT installed via `pip install graphw00f`.** That
+> exact name is registered on PyPI as an inert dependency-confusion decoy
+> (its own package description says so) — the real tool only exists as a
+> GitHub repo and is what the Dockerfile actually clones. Worth remembering
+> before ever running `pip install <tool-name>` on a name lifted from
+> documentation without checking PyPI first.
+
+**Mimikatz** is staged only when explicitly requested at build time (see
+below) — it's excluded by default because it's frequently AV/registry-policy
+flagged. `run_mimikatz()` refuses to run if it isn't present in the image.
 
 Wordlists included: `rockyou.txt` (decompressed at build time), Kali's
 standard wordlists (`dirb`, `dirbuster`), and a custom sensitive-paths list
@@ -137,6 +183,13 @@ docker compose build --no-cache
 docker compose up -d   # recreates the container from the new image
 ```
 
+To include Mimikatz (off by default — see [SECURITY.md](./SECURITY.md)):
+
+```bash
+docker compose build --build-arg INCLUDE_OFFENSIVE_BINARIES=true
+docker compose up -d
+```
+
 Rebuilding periodically is recommended — the image doesn't update itself,
 and the Nuclei templates/`apt` packages stay frozen at build time.
 
@@ -158,7 +211,7 @@ and the Nuclei templates/`apt` packages stay frozen at build time.
      }
    }
    ```
-4. Restart Claude Code. All 25 tools should show up as available.
+4. Restart Claude Code. All 59 tools should show up as available.
 
 In this mode, **there is no authentication** — the OS itself controls who
 can spawn the process, and `KALI_MCP_TRANSPORT` stays at `stdio` (the
@@ -261,7 +314,7 @@ In Desktop's settings, under Connectors → **Add custom connector**:
   (dynamic client registration), no manual Client ID needed
 
 You'll be redirected to Cognito's hosted login screen. Once authenticated,
-all 25 tools become available as usual.
+all 59 tools become available as usual.
 
 ## MCP tools — reference and usage examples
 
@@ -295,6 +348,17 @@ list_findings(target="192.168.1.10", limit=20)
 **`generate_report`** — consolidates all findings for a target into one report
 ```python
 generate_report(target="192.168.1.10", output_format="markdown")
+```
+
+**`request_high_risk_action`** — issues a 10-minute, single-use confirmation
+token required before running a high-risk tool (credential dumping, lateral
+movement, Mimikatz, netexec write/exec modes, opening a pivot tunnel)
+```python
+request_high_risk_action(
+    action="impacket_secretsdump", target="10.0.0.20",
+    justification="Domain Admin creds needed to validate lateral movement per engagement scope §3.2",
+)
+# -> {"token": "...", "expires_at": "..."} — pass the token as confirmation_token= to the gated tool
 ```
 
 ### Reconnaissance
@@ -389,6 +453,19 @@ test_file_upload(upload_url="http://192.168.1.10/upload.php", field_name="file")
 enumerate_mysql_database(host="192.168.1.10", user="root", password="root", database="wordpress")
 ```
 
+**`metasploit_generate_payload`** — msfvenom wrapper; `lhost`/`lport` are your
+own listener, so this doesn't touch the allowlist
+```python
+metasploit_generate_payload(payload="linux/x64/shell_reverse_tcp", lhost="10.10.10.5", lport=4444, format="elf")
+```
+
+**`metasploit_run_module`** — msfconsole wrapper, sets `RHOSTS` from `target` automatically
+```python
+metasploit_run_module(
+    module="auxiliary/scanner/smb/smb_version", options={"RPORT": "445"}, target="192.168.1.10",
+)
+```
+
 ### Web utilities
 
 **`make_http_request`** — custom HTTP request
@@ -412,6 +489,142 @@ check_exposed_files(target_url="http://192.168.1.10")
 screenshot_gowitness(target_url="http://192.168.1.10/admin")
 ```
 
+### Credentials
+
+**`identify_hash`** — identifies the likely hash algorithm(s) via `hashid`
+```python
+identify_hash(hash_value="5f4dcc3b5aa765d61d8327deb882cf99")
+```
+
+**`crack_hash_john`** / **`crack_hash_hashcat`** — offline dictionary attacks;
+cracked plaintext is returned to you and persisted **encrypted** (see
+[SECURITY.md](./SECURITY.md)), never logged in the clear
+```python
+crack_hash_john(hash_value="5f4dcc3b5aa765d61d8327deb882cf99", hash_type="raw-md5")
+crack_hash_hashcat(hash_value="5f4dcc3b5aa765d61d8327deb882cf99", hash_mode=0)
+```
+
+**`search_exploit`** — Exploit-DB lookup via `searchsploit`; also called
+automatically at the end of `scan_nuclei`/`scan_ports_nmap` for any CVE IDs
+found in their output
+```python
+search_exploit(query="wordpress 6.2")
+search_exploit(query="CVE-2023-1234")
+```
+
+### Sessions
+
+**`start_reverse_shell_listener`** — nc listener kept alive in a tmux session
+inside the container
+```python
+start_reverse_shell_listener(target="192.168.1.10", port=4444)
+```
+
+**`session_exec`** — sends a command to an open session, revalidates the
+allowlist on every call
+```python
+session_exec(session_id="a1b2c3d4e5f6", command="whoami")
+```
+
+**`session_status`** / **`session_list`** / **`session_close`**
+```python
+session_status()                                # list every session
+session_list(target="192.168.1.10")
+session_close(session_id="a1b2c3d4e5f6")
+```
+
+### Active Directory
+
+**`enum_smb_shares`** — enum4linux-ng, read-only
+```python
+enum_smb_shares(target="192.168.1.20")
+```
+
+**`enum_ad_netexec`** — netexec (`nxc`); read modes run directly, credential-
+dump/exec modes require `request_high_risk_action` first
+```python
+enum_ad_netexec(target="192.168.1.20", mode="shares")
+enum_ad_netexec(target="192.168.1.20", mode="ntds", confirmation_token="...")
+```
+
+**`bloodhound_collect`** — AD attack-path data collection
+```python
+bloodhound_collect(domain="corp.local", target="192.168.1.20", username="user", password="pass")
+```
+
+**`impacket_secretsdump`** / **`impacket_psexec`** — HIGH RISK, both require
+a `confirmation_token`
+```python
+token = request_high_risk_action(
+    action="impacket_secretsdump", target="192.168.1.20", justification="...",
+)["token"]
+impacket_secretsdump(target="192.168.1.20", username="admin", password="pw", confirmation_token=token)
+```
+
+**`evil_winrm_connect`** — opens a WinRM session via the same tmux-backed
+session mechanism as reverse shells
+```python
+evil_winrm_connect(target="192.168.1.20", username="admin", password="pw")
+```
+
+### Post-exploitation
+
+**`run_linpeas`** / **`run_winpeas`** — privilege-escalation enumeration
+against an open session
+```python
+run_linpeas(session_id="a1b2c3d4e5f6")
+run_winpeas(session_id="a1b2c3d4e5f6")
+```
+
+**`run_mimikatz`** — HIGH RISK, requires a `confirmation_token`; refuses to
+run unless the image was built with `INCLUDE_OFFENSIVE_BINARIES=true`
+```python
+run_mimikatz(session_id="a1b2c3d4e5f6", confirmation_token="...")
+```
+
+### Pivoting
+
+**`start_chisel_tunnel`** / **`start_ligolo_tunnel`** — both require the pivot
+host in the allowlist AND a `confirmation_token`. Opening a tunnel never adds
+anything to the allowlist — any host reached through it still needs its own
+`manage_allowlist()` entry before it can be scanned.
+```python
+start_chisel_tunnel(target="192.168.1.20", local_port=9001, remote_port=8080, confirmation_token="...")
+start_ligolo_tunnel(target="192.168.1.20", confirmation_token="...")
+```
+
+**`pivot_scan_via_proxychains`** — runs any command through the tunnel
+```python
+pivot_scan_via_proxychains(target="10.10.10.5", command="nmap -sV -F 10.10.10.5")
+```
+
+### Forensics / binary analysis
+
+CTF/forensics workflow — not part of the standard web pentest flow.
+
+```python
+analyze_memory_volatility(dump_path="/tmp/dump.raw", plugin="windows.pslist")
+disassemble_binary_r2(binary_path="/tmp/vuln")
+debug_binary_gdb(binary_path="/tmp/vuln", commands="break main; run; info registers")
+extract_binwalk(file_path="/tmp/firmware.bin")
+```
+
+**`analyze_binary_angr`** / **`exploit_pwntools_helper`** — EXPERIMENTAL,
+execute caller-supplied Python inside the container
+```python
+analyze_binary_angr(binary_path="/tmp/vuln", analysis="cfg = proj.analyses.CFGFast(); result = len(cfg.graph.nodes)")
+exploit_pwntools_helper(script="from pwn import *\np = process('/tmp/vuln')\np.sendline(b'A'*40)\nprint(p.recvall())")
+```
+
+### Secrets / JS / API
+
+```python
+scan_secrets_trufflehog(target_url_or_repo="https://github.com/org/repo.git")
+scan_js_secretfinder(target_url="http://app.local/main.js")
+analyze_jwt(token="eyJhbGciOiJIUzI1NiJ9...")
+fingerprint_graphql_graphw00f(target_url="http://app.local/graphql")
+```
+
 ### Orchestration
 
 **`run_full_pentest`** — autonomous end-to-end pipeline (16 phases)
@@ -424,8 +637,9 @@ run_full_pentest(target="example.com", target_url="https://example.com", include
 
 | Path | Contents |
 |---|---|
-| `~/.kali-mcp/findings.db` | SQLite database with all findings per target |
-| `~/.kali-mcp/audit.log` | Audit log of every execution |
+| `~/.kali-mcp/findings.db` | SQLite: `findings`, `allowlist`, `sessions`, `credentials` (hash/plaintext columns Fernet-encrypted), `exploits`, `high_risk_confirmations` |
+| `~/.kali-mcp/secret.key` | Fernet key (0600) that encrypts the `credentials` table — treat `~/.kali-mcp/` as a secret; see [SECURITY.md](./SECURITY.md) |
+| `~/.kali-mcp/audit.log` | Audit log of every execution — sensitive fields (passwords, hashes, tokens) are redacted before logging |
 | `~/.kali-mcp/workspaces/` | Reports generated by `generate_report` |
 | `~/mcps/outputs/kali-mcp/<target>/` | Raw output of each scan + `session.json` (enables resuming via `resume_session`) |
 

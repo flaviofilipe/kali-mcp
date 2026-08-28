@@ -107,6 +107,10 @@ RUN apt-get update -qq && \
         ruby \
         ruby-dev \
         build-essential \
+        # netexec's `aardwolf` dependency has no prebuilt wheel for this
+        # platform and needs to compile from source
+        rustc \
+        cargo \
         # wordlists and support
         wordlists \
         iputils-ping \
