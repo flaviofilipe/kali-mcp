@@ -40,6 +40,7 @@ Usage:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -252,7 +253,18 @@ def _save_finding(result: ExecResult) -> None:
 
 
 def _is_allowed(target: str) -> bool:
-    """Checks whether the target (IP, hostname, or URL) is in the allowlist."""
+    """
+    Checks whether the target (IP, hostname, or URL) is in the allowlist.
+
+    Hostname entries only match on an exact match or a dot-bounded suffix
+    (subdomain) match — never a raw substring. This prevents a bypass like
+    an allowlisted "test.com" also matching "test.com.evil-domain.net" or
+    "eviltest.com", both of which are unrelated domains.
+
+    IP/CIDR entries are compared as actual network membership via the
+    `ipaddress` module, so "10.0.0.5" does NOT match "10.0.0.50" (that used
+    to pass under the old substring check).
+    """
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute("SELECT entry FROM allowlist").fetchall()
 
@@ -262,10 +274,26 @@ def _is_allowed(target: str) -> bool:
     # Normalize: strip URL scheme and port to compare host/IP only
     normalized = target.lower().split("://")[-1].split("/")[0].split(":")[0]
     entries = [r[0].lower() for r in rows]
-    return any(
-        normalized == e or normalized.endswith(f".{e}") or e in normalized
-        for e in entries
-    )
+
+    try:
+        target_ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = ipaddress.ip_address(normalized)
+    except ValueError:
+        target_ip = None
+
+    for entry in entries:
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            # Not a valid IP/CIDR — treat as a hostname entry.
+            if normalized == entry or normalized.endswith(f".{entry}"):
+                return True
+            continue
+
+        # Entry is a valid IP/CIDR: only a real network-membership match counts.
+        if target_ip is not None and target_ip in network:
+            return True
+
+    return False
 
 
 # ── Rate limiting ────────────────────────────────────────────────────────────
