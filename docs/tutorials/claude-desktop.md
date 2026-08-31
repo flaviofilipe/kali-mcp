@@ -27,7 +27,7 @@ domain).
    in with the email/password you created in [Remote HTTPS
    setup](./remote-https-setup.md#step-1--create-the-cognito-auth-infrastructure-one-time).
 5. On success, you're redirected back and the connector shows as
-   connected. All 59 tools become available the same way they would over
+   connected. All 61 tools become available the same way they would over
    local stdio.
 
 ## Verify

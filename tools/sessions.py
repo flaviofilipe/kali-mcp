@@ -93,6 +93,25 @@ def start_reverse_shell_listener(target: str, port: int, shell_type: str = "bash
 
 
 @mcp.tool()
+def connect_telnet(target: str, port: int = 23) -> dict[str, Any]:
+    """
+    Opens an interactive Telnet session, kept alive in a tmux session so
+    session_exec() can drive it across multiple tool calls (login prompt,
+    commands, etc.) — same pattern as evil_winrm_connect(). Use when Nmap
+    identifies an exposed Telnet service (typically port 23).
+
+    Args:
+        target: IP or hostname of the Telnet service. Must be in the allowlist.
+        port:   Telnet port. Default: 23
+    """
+    audit.info("TELNET_CONNECT | target=%s port=%d", target, port)
+    return open_tmux_session(
+        session_type="telnet", target=target, host=target, port=port,
+        command=["telnet", target, str(port)],
+    )
+
+
+@mcp.tool()
 def session_exec(session_id: str, command: str) -> dict[str, Any]:
     """
     Sends a command to an open session and returns the captured pane output.

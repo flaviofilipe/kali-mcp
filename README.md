@@ -10,7 +10,7 @@ inside an isolated Kali Linux container, with a mandatory target allowlist,
 rate limiting, a confirmation gate on high-risk actions, and a full audit log.
 
 In short: **AI-driven penetration testing automation**, safely sandboxed in
-Docker, exposed as 59 MCP tools so Claude Code, Claude Desktop, ChatGPT, or
+Docker, exposed as 61 MCP tools so Claude Code, Claude Desktop, ChatGPT, or
 any other MCP-compatible client can run a full web app / WordPress /
 network / Active Directory pentest — Nmap port
 scanning, Nikto and Nuclei vulnerability scanning, Gobuster/ffuf directory
@@ -109,6 +109,7 @@ Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 | `radare2`, `gdb`, `binwalk`, `exiftool`, `steghide` | Reverse engineering / forensics |
 | `mariadb-client` | Direct MySQL/MariaDB enumeration |
 | `tmux`, `netcat-traditional` | Session management (keeps a reverse shell alive across MCP calls) |
+| `telnet`, `ftp` (`tnftp`) | Interactive Telnet/FTP clients — `connect_telnet()`, `enumerate_ftp()` |
 | `curl`, `wget`, `chromium` | HTTP requests / rendering |
 
 Compiled from source or fetched as a pinned prebuilt release in a separate Go
@@ -269,6 +270,16 @@ request_high_risk_action(
 ```python
 scan_ports_nmap(target="192.168.1.10", flags="-sV -F")
 scan_ports_nmap(target="192.168.1.10", flags="-p 1-65535 -sV", stealth=True)
+# lab targets (HTB, THM, ...) commonly report "Host seems down" against
+# Nmap's default discovery despite answering plain ICMP — retry with:
+scan_ports_nmap(target="10.10.10.5", skip_host_discovery=True)
+```
+
+**`enumerate_ftp`** — anonymous (or credentialed) FTP login check + root
+directory listing
+```python
+enumerate_ftp(target="192.168.1.10")  # anonymous:anonymous by default
+enumerate_ftp(target="192.168.1.10", username="admin", password="pw")
 ```
 
 **`enum_subdomains_subfinder`** — passive subdomain reconnaissance
@@ -420,6 +431,13 @@ search_exploit(query="CVE-2023-1234")
 inside the container
 ```python
 start_reverse_shell_listener(target="192.168.1.10", port=4444)
+```
+
+**`connect_telnet`** — opens a Telnet session via the same tmux-backed
+session mechanism as reverse shells
+```python
+connect_telnet(target="192.168.1.10")
+connect_telnet(target="192.168.1.10", port=2323)
 ```
 
 **`session_exec`** — sends a command to an open session, revalidates the

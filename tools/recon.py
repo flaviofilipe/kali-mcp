@@ -15,6 +15,7 @@ def scan_ports_nmap(
     target: str,
     flags: str = "-sV -F",
     stealth: bool = False,
+    skip_host_discovery: bool = False,
 ) -> dict[str, Any]:
     """
     Performs a port scan using Nmap. ALWAYS use this as the first phase.
@@ -27,14 +28,26 @@ def scan_ports_nmap(
       "-A"              → aggressive (version, OS, NSE scripts, traceroute)
       "--script vuln"   → NSE vulnerability scripts
 
+    Lab targets (HackTheBox, TryHackMe, etc.): their network layer commonly
+    answers plain ICMP ping but treats Nmap's default multi-probe host
+    discovery differently, so a first attempt with default flags reliably
+    comes back "Host seems down" even though the host is up. If that
+    happens, retry with skip_host_discovery=True rather than assuming the
+    target is actually unreachable.
+
     Args:
-        target:  IP, hostname, or CIDR. E.g.: "192.168.1.1", "10.0.0.0/24"
-        flags:   Nmap flags (parsed via shlex, no shell interpretation).
-        stealth: True = T2 timing + 1s scan-delay to avoid IDS/rate-limiting.
+        target:               IP, hostname, or CIDR. E.g.: "192.168.1.1", "10.0.0.0/24"
+        flags:                Nmap flags (parsed via shlex, no shell interpretation).
+        stealth:              True = T2 timing + 1s scan-delay to avoid IDS/rate-limiting.
+        skip_host_discovery:  True = adds -Pn (treat host as online, skip discovery
+                               probes). Use for lab/CTF targets that report as down
+                               despite answering ICMP — see note above.
     """
     nmap_flags = shlex.split(flags)
     if stealth and "--scan-delay" not in flags:
         nmap_flags += ["--scan-delay", "1s", "-T2"]
+    if skip_host_discovery and "-Pn" not in nmap_flags:
+        nmap_flags += ["-Pn"]
     cmd = ["nmap"] + nmap_flags + [target]
     result = exec_in_kali(cmd, tool_name="nmap", target=target)
     out = result.model_dump()

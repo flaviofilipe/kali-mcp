@@ -67,7 +67,7 @@ Alternatively, from inside a Claude Code session in this repo, you can run
 
 Restart Claude Code completely (MCP servers are loaded once at startup, not
 hot-reloaded). Then ask it something like "list your available tools" or
-just try `check_target_online` against `127.0.0.1` — you should see **59
+just try `check_target_online` against `127.0.0.1` — you should see **61
 tools** available under `kali-security-bridge`.
 
 ## Troubleshooting

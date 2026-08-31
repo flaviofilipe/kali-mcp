@@ -34,7 +34,7 @@ OAuth client already issued.
 4. Save/continue — ChatGPT should open Cognito's hosted login page. Sign in
    with the email/password from [Remote HTTPS
    setup](./remote-https-setup.md#step-1--create-the-cognito-auth-infrastructure-one-time).
-5. Once authenticated, the connector should list this server's 59 tools.
+5. Once authenticated, the connector should list this server's 61 tools.
 
 For OpenAI's own, always-current instructions on adding a custom MCP
 connector, see their [platform

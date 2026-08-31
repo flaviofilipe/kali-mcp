@@ -102,3 +102,50 @@ def test_session_status_without_id_lists_all(allowlist_db, fake_container, no_ra
 
     result = sessions.session_status()
     assert result["total"] == 1
+
+
+def test_connect_telnet_blocked_when_not_allowlisted(allowlist_db, fake_container, no_rate_limit):
+    result = sessions.connect_telnet(target="10.0.0.9")
+    assert result["success"] is False
+    assert "allowlist" in result["error"].lower()
+    assert fake_container.calls == []
+
+
+def test_connect_telnet_opens_tmux_session(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.9")
+    result = sessions.connect_telnet(target="10.0.0.9")
+
+    assert result["success"] is True
+    assert result["session_type"] == "telnet"
+    assert result["status"] == "open"
+
+    cmd = fake_container.calls[0]
+    assert cmd[:3] == ["tmux", "new-session", "-d"]
+    assert "telnet" in cmd
+    assert "10.0.0.9" in cmd
+    assert "23" in cmd
+
+    record = db.get_session(result["session_id"])
+    assert record is not None
+    assert record[1] == "10.0.0.9"  # target
+    assert record[5] == "open"      # status
+
+
+def test_connect_telnet_uses_custom_port(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.9")
+    result = sessions.connect_telnet(target="10.0.0.9", port=2323)
+    assert result["success"] is True
+    assert "2323" in fake_container.calls[0]
+
+
+def test_connect_telnet_then_session_exec_drives_it(allowlist_db, fake_container, no_rate_limit):
+    """Then existing session_exec()/session_close() already handle the rest."""
+    db.allowlist_add("10.0.0.9")
+    opened = sessions.connect_telnet(target="10.0.0.9")
+    session_id = opened["session_id"]
+
+    fake_container.when(lambda cmd: "capture-pane" in cmd, 0, "login: root\nPassword:\n")
+
+    result = sessions.session_exec(session_id=session_id, command="root")
+    assert result["success"] is True
+    assert "login:" in result["output"]
