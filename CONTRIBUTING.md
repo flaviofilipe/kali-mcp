@@ -22,6 +22,7 @@ kali-mcp/
 │   │                             # list_findings, generate_report, request_high_risk_action,
 │   │                             # run_full_pentest (orchestration)
 │   ├── recon.py                 # scan_ports_nmap, enum_subdomains_subfinder
+│   ├── ftp.py                    # enumerate_ftp
 │   ├── web.py                   # gobuster, katana, ffuf, nikto, testssl, nuclei, dalfox,
 │   │                             # wpscan, xmlrpc, check_security_headers, check_exposed_files,
 │   │                             # screenshot_gowitness, make_http_request
@@ -29,8 +30,9 @@ kali-mcp/
 │   │                             # metasploit_generate_payload, metasploit_run_module
 │   ├── credentials.py           # identify_hash, crack_hash_john, crack_hash_hashcat,
 │   │                             # search_exploit, CVE auto-suggest helper
-│   ├── sessions.py               # start_reverse_shell_listener, session_exec, session_status,
-│   │                             # session_close, session_list, open_tmux_session() (shared)
+│   ├── sessions.py               # start_reverse_shell_listener, connect_telnet, session_exec,
+│   │                             # session_status, session_close, session_list,
+│   │                             # open_tmux_session() (shared)
 │   ├── active_directory.py       # enum_smb_shares, enum_ad_netexec, bloodhound_collect,
 │   │                             # impacket_secretsdump, impacket_psexec, evil_winrm_connect
 │   ├── post_exploitation.py      # run_linpeas, run_winpeas, run_mimikatz

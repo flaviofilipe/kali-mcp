@@ -83,6 +83,7 @@ RATE_LIMITS: dict[str, float] = {
     "curl":      1.0,
     "ffuf":      3.0,
     "mysql":     2.0,
+    "ftp":       2.0,
     # Credentials — hash cracking runs offline against a value already in
     # hand, not against a live target, so it can be more permissive than
     # network brute forcing (hydra above).
@@ -94,12 +95,14 @@ RATE_LIMITS: dict[str, float] = {
     "reverse-shell-listener": 3.0,
     "session-exec":           1.0,
     "evil-winrm":             3.0,
+    "telnet":                 3.0,
     # Exploitation — Metasploit
     "msfvenom":   5.0,
     "msfconsole": 10.0,
     # Active Directory
     "enum4linux-ng": 5.0,
     "netexec":       5.0,
+    "smbclient":     2.0,
     "bloodhound-python": 10.0,
     "secretsdump":   10.0,
     "psexec":        10.0,

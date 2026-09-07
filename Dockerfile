@@ -73,6 +73,11 @@ RUN apt-get update -qq && \
         # recon
         nmap \
         smbclient \
+        # interactive clients for connect_telnet()/enumerate_ftp() —
+        # curl alone covers basic FTP list/download but not a real
+        # interactive `ftp>` session, and there's no substitute for telnet
+        telnet \
+        ftp \
         # enum4linux-ng shells out to nmblookup/net, not provided by smbclient alone
         samba-common-bin \
         # web analysis

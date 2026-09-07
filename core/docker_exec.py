@@ -121,3 +121,29 @@ def write_file(path: str, content: str) -> str | None:
     if exit_code != 0:
         return raw.decode("utf-8", errors="replace") if raw else "Failed to write file."
     return None
+
+
+def read_file(path: str) -> tuple[str | None, str | None]:
+    """
+    Reads `path` back from inside the Kali container — the read-back half
+    of write_file(). Content crosses the exec_run() boundary base64-encoded
+    so arbitrary bytes survive intact, then is decoded as UTF-8 (best
+    effort) for tools that hand file contents back to the caller (e.g.
+    smb_get_file() after an smbclient `get`).
+
+    Returns (content, None) on success, or (None, error_message) — e.g. when
+    the path doesn't exist, which is the normal way a caller finds out that
+    a preceding download/write never actually happened.
+    """
+    try:
+        container = get_container()
+    except RuntimeError as exc:
+        return None, str(exc)
+    exit_code, raw = container.exec_run(["sh", "-c", f"base64 {path}"])
+    if exit_code != 0:
+        return None, raw.decode("utf-8", errors="replace") if raw else f"Failed to read '{path}'."
+    try:
+        content = base64.b64decode(raw.decode("ascii", errors="replace").strip()).decode("utf-8", errors="replace")
+    except (ValueError, UnicodeDecodeError) as exc:
+        return None, f"Failed to decode content of '{path}': {exc}"
+    return content, None

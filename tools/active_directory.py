@@ -11,12 +11,13 @@ first and pass the returned token as confirmation_token.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from core.audit import audit
 from core.config import mcp
 from core.db import save_credential
-from core.docker_exec import exec_in_kali
+from core.docker_exec import exec_in_kali, read_file
 from core.security import consume_confirmation, is_allowed
 from tools.sessions import open_tmux_session
 
@@ -47,6 +48,92 @@ def enum_smb_shares(target: str) -> dict[str, Any]:
     """
     cmd = ["enum4linux-ng", "-A", target]
     return exec_in_kali(cmd, tool_name="enum4linux-ng", target=target).model_dump()
+
+
+def _smb_auth_args(username: str, password: str) -> list[str]:
+    return ["-U", f"{username}%{password}"] if username else ["-N"]
+
+
+@mcp.tool()
+def smb_list_dir(
+    target: str,
+    share: str,
+    path: str = "",
+    username: str = "",
+    password: str = "",
+) -> dict[str, Any]:
+    """
+    Lists the contents of an SMB share (or a subdirectory within it) via
+    smbclient. enum_smb_shares() (enum4linux-ng) tells you which shares
+    *exist*; this lists the files *inside* one — use it to find exact
+    filenames/subfolders (e.g. a "backups" directory) before smb_get_file().
+
+    Anonymous access (guest/null session) is the default — pass a username
+    only when the share requires authentication.
+
+    Args:
+        target:   IP or hostname of the SMB host. Must be in the allowlist.
+        share:    Share name, e.g. "share", "public".
+        path:     Subdirectory within the share to list. Empty = share root.
+        username: Username for authenticated access. Empty = anonymous (-N).
+        password: Password. Ignored when username is empty.
+    """
+    script = f'cd "{path}"; ls' if path else "ls"
+    cmd = ["smbclient", f"//{target}/{share}", *_smb_auth_args(username, password), "-c", script]
+    return exec_in_kali(cmd, tool_name="smbclient", target=target).model_dump()
+
+
+@mcp.tool()
+def smb_get_file(
+    target: str,
+    share: str,
+    remote_path: str,
+    username: str = "",
+    password: str = "",
+) -> dict[str, Any]:
+    """
+    Downloads a file from an SMB share and returns its content — the "pull
+    the flag" step that enum_smb_shares() (enumeration only) doesn't cover.
+    Use after enum_smb_shares() or smb_list_dir() has shown which share/path
+    to fetch (e.g. "flag.txt", "backups/usuarios.txt").
+
+    Anonymous access (guest/null session) is the default — pass a username
+    only when the share requires authentication.
+
+    Args:
+        target:      IP or hostname of the SMB host. Must be in the allowlist.
+        share:       Share name, e.g. "share", "public".
+        remote_path: Path of the file within the share, e.g. "flag.txt" or
+                     "backups/usuarios.txt".
+        username:    Username for authenticated access. Empty = anonymous (-N).
+        password:    Password. Ignored when username is empty.
+    """
+    if not remote_path:
+        return {"success": False, "error": "remote_path is required."}
+
+    local_path = f"/tmp/smb_dl_{uuid.uuid4().hex[:8]}"
+    cmd = [
+        "smbclient", f"//{target}/{share}", *_smb_auth_args(username, password),
+        "-c", f'get "{remote_path}" {local_path}',
+    ]
+
+    result = exec_in_kali(cmd, tool_name="smbclient", target=target)
+    out = result.model_dump()
+    if not result.success:
+        out["summary"] = f"smbclient failed against //{target}/{share} — see 'output'/'error'."
+        return out
+
+    content, read_error = read_file(local_path)
+    if read_error:
+        out["success"] = False
+        out["error"]   = f"smbclient ran, but '{remote_path}' was not retrieved: {read_error}"
+        out["summary"] = out["error"]
+        return out
+
+    out["file_content"] = content
+    out["remote_path"]  = remote_path
+    out["summary"] = f"Downloaded '{remote_path}' from //{target}/{share} ({len(content)} chars) — see 'file_content'."
+    return out
 
 
 @mcp.tool()

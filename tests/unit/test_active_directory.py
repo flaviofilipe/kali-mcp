@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+
 import core.db as db
 import core.security as security
 from tools import active_directory as ad
@@ -18,6 +20,91 @@ def test_enum_smb_shares_runs_enum4linux(allowlist_db, fake_container, no_rate_l
     result = ad.enum_smb_shares(target="10.0.0.20")
     assert result["success"] is True
     assert fake_container.calls[0] == ["enum4linux-ng", "-A", "10.0.0.20"]
+
+
+def test_smb_list_dir_lists_share_root(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.20")
+    fake_container.when(lambda cmd: cmd[0] == "smbclient", 0, "  flag.txt   N   20  ...\n  backups   D   0  ...")
+    result = ad.smb_list_dir(target="10.0.0.20", share="share")
+    assert result["success"] is True
+    assert fake_container.calls[0][-1] == "ls"
+    assert "-N" in fake_container.calls[0]
+
+
+def test_smb_list_dir_cds_into_subpath(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.20")
+    fake_container.when(lambda cmd: cmd[0] == "smbclient", 0, "  usuarios.txt   N   40  ...")
+    result = ad.smb_list_dir(target="10.0.0.20", share="share", path="backups")
+    assert result["success"] is True
+    assert fake_container.calls[0][-1] == 'cd "backups"; ls'
+
+
+def test_smb_list_dir_blocked_when_not_allowlisted(allowlist_db, fake_container, no_rate_limit):
+    result = ad.smb_list_dir(target="10.0.0.20", share="share")
+    assert result["success"] is False
+    assert fake_container.calls == []
+
+
+def test_smb_get_file_requires_remote_path(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.20")
+    result = ad.smb_get_file(target="10.0.0.20", share="share", remote_path="")
+    assert result["success"] is False
+    assert fake_container.calls == []
+
+
+def test_smb_get_file_blocked_when_not_allowlisted(allowlist_db, fake_container, no_rate_limit):
+    result = ad.smb_get_file(target="10.0.0.20", share="share", remote_path="flag.txt")
+    assert result["success"] is False
+
+
+def test_smb_get_file_downloads_and_returns_content_anonymous(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.20")
+    fake_container.when(lambda cmd: cmd[0] == "smbclient", 0, "getting file \\flag.txt of size 14 as ...")
+    encoded = base64.b64encode(b"LAB1{deadbeef}").decode("ascii")
+    fake_container.when(lambda cmd: cmd[0] == "sh" and "base64" in cmd[-1], 0, encoded + "\n")
+
+    result = ad.smb_get_file(target="10.0.0.20", share="share", remote_path="flag.txt")
+
+    assert result["success"] is True
+    assert result["file_content"] == "LAB1{deadbeef}"
+    assert result["remote_path"] == "flag.txt"
+    smb_call = fake_container.calls[0]
+    assert smb_call[:2] == ["smbclient", "//10.0.0.20/share"]
+    assert "-N" in smb_call
+    assert 'get "flag.txt"' in smb_call[-1]
+
+
+def test_smb_get_file_uses_credentials_when_given(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.20")
+    fake_container.when(lambda cmd: cmd[0] == "smbclient", 0, "getting file")
+    fake_container.when(
+        lambda cmd: cmd[0] == "sh" and "base64" in cmd[-1], 0,
+        base64.b64encode(b"SQLAdmin:admin123").decode("ascii"),
+    )
+
+    result = ad.smb_get_file(
+        target="10.0.0.20", share="share", remote_path="backups/usuarios.txt",
+        username="SQLAdmin", password="admin123",
+    )
+
+    assert result["success"] is True
+    smb_call = fake_container.calls[0]
+    assert "-U" in smb_call
+    assert "SQLAdmin%admin123" in smb_call
+
+
+def test_smb_get_file_reports_error_when_file_was_never_downloaded(allowlist_db, fake_container, no_rate_limit):
+    db.allowlist_add("10.0.0.20")
+    fake_container.when(lambda cmd: cmd[0] == "smbclient", 0, "NT_STATUS_NO_SUCH_FILE opening remote file")
+    fake_container.when(
+        lambda cmd: cmd[0] == "sh" and "base64" in cmd[-1], 1,
+        "base64: /tmp/smb_dl_xxx: No such file or directory",
+    )
+
+    result = ad.smb_get_file(target="10.0.0.20", share="share", remote_path="nope.txt")
+
+    assert result["success"] is False
+    assert "not retrieved" in result["error"]
 
 
 def test_enum_ad_netexec_read_mode_no_token_needed(allowlist_db, fake_container, no_rate_limit):
