@@ -7,6 +7,7 @@ full-pentest pipeline.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -224,6 +225,51 @@ def generate_report(target: str, output_format: str = "markdown") -> dict[str, A
 # ── Orchestration ────────────────────────────────────────────────────────────
 
 
+def _detect_ports_from_nmap(nmap_output: str) -> tuple[list[int], bool, bool]:
+    """
+    Extracts web/SSH/FTP port presence from an `nmap -sV` port table for
+    run_full_pentest()'s pipeline routing. Each port-table line starts with
+    "<port>/tcp" — parsed as an int and compared by exact set membership,
+    never by substring: a naive `"443/tcp" in line` check (the previous
+    approach) also matches inside "8443/tcp", and "80/tcp" inside "8080/tcp",
+    so a host with 8443 or 8080 open but no real 443/80 would falsely
+    register those too — corrupting web_ports_found and silently pointing
+    every web phase (gobuster, nikto, nuclei, ...) at a port that was never
+    actually open, while the port that *was* open never gets scanned.
+
+    Returns (web_ports, has_ssh, has_ftp). web_ports preserves the priority
+    order of the candidate list below (lower/more common ports first), not
+    the order ports appear in the nmap output.
+    """
+    open_tcp_ports: set[int] = set()
+    for line in nmap_output.splitlines():
+        match = re.match(r"^(\d+)/tcp\s+open\b", line.strip())
+        if match:
+            open_tcp_ports.add(int(match.group(1)))
+
+    web_ports = [
+        p for p in [80, 443, 8080, 8443, 3000, 4000, 5000, 8000, 9090, 8888]
+        if p in open_tcp_ports
+    ]
+    return web_ports, 22 in open_tcp_ports, 21 in open_tcp_ports
+
+
+def _infer_target_url(target: str, web_ports: list[int]) -> str | None:
+    """
+    Builds a base URL from the first (highest-priority) port in web_ports,
+    or None if the list is empty. Protocol is derived from that specific
+    port, not from "is 443/8443 open anywhere on the host" — a host serving
+    plain HTTP on 80 *and* a separate HTTPS service on 8443 (common: a
+    reverse proxy plus an admin panel, or unrelated apps) would otherwise
+    get its port-80 target incorrectly probed over HTTPS.
+    """
+    if not web_ports:
+        return None
+    port  = web_ports[0]
+    proto = "https" if port in (443, 8443) else "http"
+    return f"{proto}://{target}" if port in (80, 443) else f"{proto}://{target}:{port}"
+
+
 @mcp.tool()
 def run_full_pentest(
     target: str,
@@ -290,29 +336,12 @@ def run_full_pentest(
     )
     results["phases"]["nmap"] = nmap.model_dump()
 
-    # Detect web, SSH, and FTP ports in the output
-    web_ports: list[int] = []
-    has_ssh = has_ftp = False
-    for line in nmap.output.splitlines():
-        low = line.lower()
-        if "open" not in low:
-            continue
-        for p in [80, 443, 8080, 8443, 3000, 4000, 5000, 8000, 9090, 8888]:
-            if f"{p}/tcp" in line:
-                web_ports.append(p)
-        if "22/tcp" in line:
-            has_ssh = True
-        if "21/tcp" in line:
-            has_ftp = True
+    # Detect web, SSH, and FTP ports in the output (see _detect_ports_from_nmap).
+    web_ports, has_ssh, has_ftp = _detect_ports_from_nmap(nmap.output)
 
-    # Infer base URL if not provided
-    if not target_url and web_ports:
-        proto = "https" if (443 in web_ports or 8443 in web_ports) else "http"
-        port  = web_ports[0]
-        target_url = (
-            f"{proto}://{target}" if port in (80, 443)
-            else f"{proto}://{target}:{port}"
-        )
+    # Infer base URL if not provided (see _infer_target_url).
+    if not target_url:
+        target_url = _infer_target_url(target, web_ports) or ""
 
     results["web_ports_found"]  = web_ports
     results["target_url_used"]  = target_url
