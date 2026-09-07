@@ -102,6 +102,7 @@ RATE_LIMITS: dict[str, float] = {
     # Active Directory
     "enum4linux-ng": 5.0,
     "netexec":       5.0,
+    "smbclient":     2.0,
     "bloodhound-python": 10.0,
     "secretsdump":   10.0,
     "psexec":        10.0,
