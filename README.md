@@ -10,7 +10,7 @@ inside an isolated Kali Linux container, with a mandatory target allowlist,
 rate limiting, a confirmation gate on high-risk actions, and a full audit log.
 
 In short: **AI-driven penetration testing automation**, safely sandboxed in
-Docker, exposed as 61 MCP tools so Claude Code, Claude Desktop, ChatGPT, or
+Docker, exposed as 63 MCP tools so Claude Code, Claude Desktop, ChatGPT, or
 any other MCP-compatible client can run a full web app / WordPress /
 network / Active Directory pentest — Nmap port
 scanning, Nikto and Nuclei vulnerability scanning, Gobuster/ffuf directory
@@ -94,7 +94,7 @@ Installed via `apt` (final image based on `kalilinux/kali-rolling`):
 | Tool | Category |
 |---|---|
 | `nmap` | Port/service scanning |
-| `smbclient` | SMB browsing |
+| `smbclient` | SMB browsing/download — `smb_list_dir()`, `smb_get_file()` |
 | `nikto` | Web vulnerability scanning |
 | `testssl.sh` | SSL/TLS analysis |
 | `wpscan` | WordPress security auditing |
@@ -458,6 +458,22 @@ session_close(session_id="a1b2c3d4e5f6")
 **`enum_smb_shares`** — enum4linux-ng, read-only
 ```python
 enum_smb_shares(target="192.168.1.20")
+```
+
+**`smb_list_dir`** — lists a share's contents (or a subdirectory within it)
+via `smbclient`; use to find exact filenames before `smb_get_file`
+```python
+smb_list_dir(target="192.168.1.20", share="share")                     # anonymous
+smb_list_dir(target="192.168.1.20", share="share", path="backups")
+smb_list_dir(target="192.168.1.20", share="share", username="admin", password="pw")
+```
+
+**`smb_get_file`** — downloads a file from an SMB share and returns its
+content directly
+```python
+smb_get_file(target="192.168.1.20", share="share", remote_path="flag.txt")
+smb_get_file(target="192.168.1.20", share="share", remote_path="backups/usuarios.txt")
+smb_get_file(target="192.168.1.20", share="share", remote_path="secret.docx", username="admin", password="pw")
 ```
 
 **`enum_ad_netexec`** — netexec (`nxc`); read modes run directly, credential-
